@@ -1,0 +1,43 @@
+// ============================================================
+// _shared/gemini.ts
+// Gemini Embeddings helper (gemini-embedding-001, 768 dims)
+// Used in Stage 4 (semantic re-ranking) of the Matching Engine.
+// ============================================================
+
+import { GoogleGenAI } from "npm:@google/genai";
+
+let ai: GoogleGenAI | null = null;
+
+function getAI(): GoogleGenAI {
+  if (!ai) {
+    const apiKey = Deno.env.get("GEMINI_API_KEY");
+    if (!apiKey) throw new Error("Missing GEMINI_API_KEY");
+    ai = new GoogleGenAI({ apiKey });
+  }
+  return ai;
+}
+
+/**
+ * Generate a 768-dimension embedding using gemini-embedding-001.
+ * Use taskType "RETRIEVAL_DOCUMENT" when indexing, "RETRIEVAL_QUERY" when searching.
+ */
+export async function generateEmbedding(
+  text: string,
+  taskType: "RETRIEVAL_DOCUMENT" | "RETRIEVAL_QUERY" | "SEMANTIC_SIMILARITY" =
+    "RETRIEVAL_DOCUMENT",
+): Promise<number[]> {
+  const response = await getAI().models.embedContent({
+    model: "gemini-embedding-001",
+    contents: text,
+    config: {
+      outputDimensionality: 768, // Must match vector(768) in pgvector schema
+      taskType,
+    },
+  });
+
+  if (!response.embedding?.values) {
+    throw new Error("Gemini returned no embedding values");
+  }
+
+  return response.embedding.values;
+}

@@ -1,0 +1,7 @@
+{
+  "imports": {
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2",
+    "groq-sdk": "npm:groq-sdk",
+    "@google/genai": "npm:@google/genai"
+  }
+}
