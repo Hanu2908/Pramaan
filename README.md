@@ -38,7 +38,50 @@ Pramaan (Hindi for "proof" or "verified evidence") is a real-time news and verif
 
 ## Getting Started
 
-*(Instructions will be added once the initial boilerplate is configured)*
+### 1. Backend Setup (Supabase)
+This project uses Supabase for database, Edge Functions, and vector search.
+1. Install the [Supabase CLI](https://supabase.com/docs/guides/cli).
+2. Login and link to your project:
+   ```bash
+   supabase login
+   supabase link --project-ref your_project_ref
+   ```
+3. Push the database schema and seeded mock data:
+   ```bash
+   supabase db push
+   ```
+4. Configure Edge Function Secrets (when ready for live data):
+   ```bash
+   supabase secrets set GROQ_API_KEY=your_key GEMINI_API_KEY=your_key REALITY_DEFENDER_API_KEY=your_key
+   ```
+5. Deploy Edge Functions:
+   ```bash
+   supabase functions deploy
+   ```
+
+### 2. Frontend Setup (React App)
+The frontend is a Vite + React application.
+1. Navigate to the app directory:
+   ```bash
+   cd pramaan-app
+   ```
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Environment Variables:
+   Create a `.env.local` in `pramaan-app` (the project currently uses the provided Anon Key directly in `src/lib/supabase.ts` for MVP purposes, but this should be moved to `.env.local` for production).
+4. Run the development server:
+   ```bash
+   npm run dev
+   ```
+
+## Architecture Documentation
+For deeper technical understanding, please refer to the `docs/` folder:
+- [Concept & UI Strategy](docs/Concept.md)
+- [System Architecture](docs/Architecture.md)
+- [Low-Level Design (LLD)](docs/LLD.md)
+- [Supabase Setup Guide](docs/SupabaseSetup.md)
 
 ## Contributors
 

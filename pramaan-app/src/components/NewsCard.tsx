@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { ShieldAlert, Info, Database } from 'lucide-react';
-import type { NewsItem, ConfidenceTier } from '../data/mockData';
+import type { NewsItem } from '../data/mockData';
 
 // ── Minimalist Confidence Indicator ──────────────────────────────
 const TIER_COLORS = {

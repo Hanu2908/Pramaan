@@ -1,10 +1,11 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Navbar } from './components/Navbar';
 import { NewsList } from './components/NewsCard';
 import { ClaimChecker } from './components/ClaimChecker';
 import { ThemeProvider } from './context/ThemeContext';
-import { MOCK_NEWS, SOURCES_META, type TopicCategory } from './data/mockData';
+import { MOCK_NEWS, SOURCES_META, type TopicCategory, type NewsItem } from './data/mockData';
+import { supabase } from './lib/supabase';
 import './index.css';
 
 const TOPICS: { id: TopicCategory; label: string }[] = [
@@ -19,11 +20,43 @@ const TOPICS: { id: TopicCategory; label: string }[] = [
 function App() {
   const [view, setView] = useState<'timeline' | 'checker'>('timeline');
   const [topic, setTopic] = useState<TopicCategory>('all');
+  const [liveNews, setLiveNews] = useState<NewsItem[]>([]);
 
-  const filtered = useMemo(() =>
-    topic === 'all' ? MOCK_NEWS : MOCK_NEWS.filter(n => n.topic === topic),
-    [topic]
-  );
+  useEffect(() => {
+    async function fetchLive() {
+      const { data, error } = await supabase.rpc('get_timeline_feed', {
+        lane: 'all',
+        page_size: 10
+      });
+      if (!error && data) {
+        const mapped: NewsItem[] = data.map((item: any) => {
+          let conf = 'unverified';
+          const verdict = item.entities?.verdict || 'VERIFIED';
+          if (verdict === 'VERIFIED' || verdict === 'TRUE') conf = 'confirmed';
+          else if (verdict === 'FALSE' || verdict === 'FAKE') conf = 'unverified';
+          else conf = 'developing';
+
+          return {
+            id: item.id,
+            headline: item.headline || "Untitled Record",
+            summary: item.normalized_content,
+            confidence: conf as any,
+            lane: item.is_direct_record ? 'direct' : 'verified',
+            topic: item.topic_name as any || 'government',
+            sources: [item.source_name as any || 'PIB RSS'],
+            timestamp: new Date(item.published_at).toISOString(),
+          };
+        });
+        setLiveNews(mapped);
+      }
+    }
+    fetchLive();
+  }, []);
+
+  const filtered = useMemo(() => {
+    const combined = [...liveNews, ...MOCK_NEWS];
+    return topic === 'all' ? combined : combined.filter(n => n.topic === topic);
+  }, [topic, liveNews]);
 
   return (
     <ThemeProvider>

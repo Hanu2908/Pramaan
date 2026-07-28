@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Loader2, ArrowRight } from 'lucide-react';
+import { Loader2, ArrowRight } from 'lucide-react';
 import { MOCK_CHECK, PIPELINE_STAGES, type CheckResult } from '../data/mockData';
 
 function PipelineMinimal({ currentStage, done }: { currentStage: number; done: boolean }) {
