@@ -40,27 +40,39 @@ Pramaan (Hindi for "proof" or "verified evidence") is a real-time news and verif
 
 ### 1. Backend Setup (Supabase)
 This project uses Supabase for database, Edge Functions, and vector search.
+The remote database is currently populated with curated initial data and Gemini embeddings.
+
+If you are setting this up locally or pushing to a new project:
 1. Install the [Supabase CLI](https://supabase.com/docs/guides/cli).
 2. Login and link to your project:
    ```bash
    supabase login
    supabase link --project-ref your_project_ref
    ```
-3. Push the database schema and seeded mock data:
+3. Push the database schema:
    ```bash
    supabase db push
    ```
-4. Configure Edge Function Secrets (when ready for live data):
+4. Set the Edge Function Secrets (REQUIRED for the ClaimChecker engine):
    ```bash
-   supabase secrets set GROQ_API_KEY=your_key GEMINI_API_KEY=your_key REALITY_DEFENDER_API_KEY=your_key
+   supabase secrets set GROQ_API_KEY=your_key GEMINI_API_KEY=your_key
    ```
 5. Deploy Edge Functions:
    ```bash
    supabase functions deploy
    ```
+6. Run the seed script to populate the database with real records and embeddings:
+   ```bash
+   cd scripts
+   npm install
+   # Set environment variables for the seed script
+   export SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+   export GEMINI_API_KEY=your_gemini_key
+   node seed_database.js
+   ```
 
 ### 2. Frontend Setup (React App)
-The frontend is a Vite + React application.
+The frontend is a Vite + React application. The UI is currently connected to the remote Supabase instance.
 1. Navigate to the app directory:
    ```bash
    cd pramaan-app

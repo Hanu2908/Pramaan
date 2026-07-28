@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2, ArrowRight } from 'lucide-react';
-import { MOCK_CHECK, PIPELINE_STAGES, type CheckResult } from '../data/mockData';
+import { PIPELINE_STAGES, type CheckResult } from '../data/mockData';
 
 function PipelineMinimal({ currentStage, done }: { currentStage: number; done: boolean }) {
   return (
@@ -101,16 +101,56 @@ export function ClaimChecker() {
   async function run() {
     if (!query.trim()) return;
     setResult(null); setChecking(true); setStage(0);
-    for (let i = 1; i <= 7; i++) {
-      await new Promise(r => setTimeout(r, 350));
-      setStage(i);
+
+    // Simulate stage progression for UI (Edge function does this fast, we just animate it)
+    const stageInterval = setInterval(() => {
+      setStage(s => (s < 7 ? s + 1 : s));
+    }, 400);
+
+    try {
+      const response = await fetch('https://isqdqjubveytsvzyusyq.supabase.co/functions/v1/check-claim', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlzcWRxanVidmV5dHN2enl1c3lxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUxOTc4MzAsImV4cCI6MjEwMDc3MzgzMH0.NyD06h8j84FiWl00Cn0RAiIWnGEZzWt0N7k_iOPgK7k` // Anon key
+        },
+        body: JSON.stringify({ text: query })
+      });
+
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to check claim");
+      }
+
+      clearInterval(stageInterval);
+      setStage(7);
+
+      setResult({
+        confidence: data.tier.toLowerCase() as any,
+        summary: data.verdict,
+        evidence: (data.sources || []).map((s: any) => ({
+          source: s.name,
+          snippet: s.excerpt
+        })),
+        entities: {
+          topic: "Extracted during Edge Function retrieval"
+        },
+        isFallback: false
+      });
+    } catch (e) {
+      console.error(e);
+      clearInterval(stageInterval);
+      alert("Error checking claim. Make sure Edge Function secrets are set.");
+      setChecking(false);
+      return;
     }
+
     await new Promise(r => setTimeout(r, 200));
     setChecking(false);
-    setResult(MOCK_CHECK);
   }
 
-  const showPipeline = checking || (result !== null && stage === 7);
+  const showPipeline = checking || (result !== null && stage >= 7);
 
   return (
     <div style={{ paddingBottom: 80 }}>
