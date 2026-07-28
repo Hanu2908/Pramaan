@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Concept Brief — Verified Timeline &amp; Claim Checker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#1B3A5C; --ink-soft:#4A6C8C; --ink-faint:#7C93AC;
+    --paper:#F2F6F9; --panel:#FFFFFF;
+    --grid:rgba(27,58,92,0.07); --grid-strong:rgba(27,58,92,0.14);
+    --accent:#E08A2A; --accent-deep:#B96A16; --accent-pale:#FBEBD6;
+    --live:#357A56; --live-bg:#E1F0E7;
+    --weekly:#B9821E; --weekly-bg:#F7EBD3;
+    --cut:#B84A3E; --cut-bg:#F8E4E1;
+    --mono:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
+    --sans:'IBM Plex Sans',-apple-system,'Segoe UI',Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  @media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto;} *{animation:none !important; transition:none !important;} }
+  body{margin:0; font-family:var(--sans); color:var(--ink); line-height:1.55; -webkit-font-smoothing:antialiased;
+    background:
+      linear-gradient(var(--grid) 1px, transparent 1px) 0 0/32px 32px,
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0/32px 32px,
+      var(--paper);
+  }
+  a{color:inherit;}
+  :focus-visible{outline:2px solid var(--accent-deep); outline-offset:3px;}
+  .wrap{max-width:900px; margin:0 auto; padding:0 20px;}
+
+  header.titleblock{border-bottom:2px solid var(--ink); padding:28px 0 0; background:var(--panel);}
+  .wrap.titlepad{padding-bottom:22px;}
+  .doc-tag{font-family:var(--mono); font-size:12px; letter-spacing:0.08em; color:var(--accent-deep); text-transform:uppercase; font-weight:600;}
+  h1.doc-title{font-family:var(--mono); font-size:clamp(26px,5vw,40px); font-weight:700; margin:8px 0 6px; letter-spacing:-0.01em; line-height:1.15;}
+  p.doc-sub{font-size:16px; color:var(--ink-soft); margin:0 0 10px; max-width:60ch;}
+  .name-note{font-family:var(--mono); font-size:12px; color:var(--ink-faint); margin:0 0 18px;}
+  .countdown{display:inline-flex; align-items:center; gap:8px; background:var(--ink); color:var(--paper);
+    font-family:var(--mono); font-size:12px; letter-spacing:0.05em; padding:7px 12px; border-radius:2px; text-transform:uppercase;}
+  .countdown .dot{width:7px; height:7px; border-radius:50%; background:var(--accent); flex:none;}
+  .meta-row{display:flex; flex-wrap:wrap; font-family:var(--mono); font-size:11px; letter-spacing:0.06em; text-transform:uppercase;
+    color:var(--ink-soft); border-top:1px solid var(--grid-strong); border-bottom:1px solid var(--grid-strong); margin-top:22px;}
+  .meta-cell{flex:1 1 140px; padding:9px 14px; border-right:1px solid var(--grid-strong);}
+  .meta-cell:last-child{border-right:none;}
+  .meta-cell b{display:block; color:var(--ink); font-size:12px; margin-top:2px;}
+
+  nav.jump{background:var(--panel); border-bottom:1px solid var(--grid-strong); position:sticky; top:0; z-index:10;
+    overflow-x:auto; white-space:nowrap; -ms-overflow-style:none; scrollbar-width:none;}
+  nav.jump::-webkit-scrollbar{display:none;}
+  nav.jump .wrap{display:flex; gap:6px; padding:10px 20px;}
+  nav.jump a{font-family:var(--mono); font-size:11px; text-transform:uppercase; letter-spacing:0.05em; padding:6px 11px;
+    border:1px solid var(--grid-strong); border-radius:2px; text-decoration:none; color:var(--ink-soft); flex:none;
+    transition:border-color .15s, color .15s;}
+  nav.jump a:hover{border-color:var(--accent-deep); color:var(--accent-deep);}
+
+  section{padding:44px 0;}
+  section.alt{background:var(--panel); border-top:1px solid var(--grid-strong); border-bottom:1px solid var(--grid-strong);}
+  .eyebrow{font-family:var(--mono); font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:var(--accent-deep); font-weight:600; margin:0 0 8px;}
+  h2{font-family:var(--mono); font-size:clamp(20px,3.4vw,26px); margin:0 0 14px; letter-spacing:-0.01em;}
+  h3{font-family:var(--mono); font-size:15px; margin:0 0 4px;}
+  p{margin:0 0 14px;}
+  .lede{font-size:15.5px; color:var(--ink-soft); max-width:66ch;}
+
+  /* problem quote block */
+  .problem-block{background:var(--panel); border-left:3px solid var(--accent); padding:18px 20px; font-size:15px; color:var(--ink);}
+  .problem-block p:last-child{margin-bottom:0;}
+
+  /* architecture diagram */
+  .diagram{display:flex; flex-direction:column; gap:0; align-items:center;}
+  .diag-row{display:flex; flex-wrap:wrap; gap:10px; justify-content:center; width:100%;}
+  .diag-box{font-family:var(--mono); font-size:12px; text-align:center; background:var(--panel); border:1.5px solid var(--ink);
+    padding:10px 14px; border-radius:2px; min-width:140px;}
+  .diag-box.source{border-style:dashed; color:var(--ink-soft); font-size:11.5px;}
+  .diag-box.engine{background:var(--ink); color:var(--paper); font-weight:700; padding:16px 20px; min-width:220px;}
+  .diag-box.door{border-color:var(--accent-deep); font-weight:600;}
+  .diag-arrow{font-family:var(--mono); color:var(--ink-faint); font-size:20px; line-height:1; margin:6px 0;}
+  .diag-sub{font-family:var(--sans); font-size:11px; color:var(--ink-faint); margin-top:2px; font-weight:400;}
+
+  /* cards for sources */
+  .src-grid{display:grid; gap:16px; grid-template-columns:1fr;}
+  @media(min-width:640px){ .src-grid{grid-template-columns:1fr 1fr;} }
+  .src-card{background:var(--panel); border:1px solid var(--grid-strong); padding:18px 20px;}
+  .src-card h3{display:flex; align-items:center; gap:8px; justify-content:space-between;}
+  .cadence{font-family:var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:0.06em; padding:3px 8px; border-radius:2px; font-weight:700;}
+  .cadence.live{background:var(--live-bg); color:var(--live);}
+  .cadence.weekly{background:var(--weekly-bg); color:var(--weekly);}
+  .cadence.excluded{background:var(--cut-bg); color:var(--cut);}
+  .src-card p{font-size:14px; color:var(--ink-soft); margin:8px 0 0;}
+
+  /* topics table */
+  .table-scroll{overflow-x:auto; border:1px solid var(--grid-strong); background:var(--panel);}
+  table.data{border-collapse:collapse; width:100%; min-width:560px; font-size:13.5px;}
+  table.data th, table.data td{text-align:left; padding:11px 14px; border-bottom:1px solid var(--grid-strong); border-right:1px solid var(--grid); vertical-align:top;}
+  table.data th{font-family:var(--mono); font-size:11px; text-transform:uppercase; letter-spacing:0.04em; background:var(--ink); color:var(--paper); font-weight:600;}
+  table.data td:first-child{font-family:var(--mono); font-weight:600; white-space:nowrap;}
+  table.data tr:last-child td{border-bottom:none;}
+  table.data td:last-child, table.data th:last-child{border-right:none;}
+
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{font-family:var(--mono); font-size:12px; background:var(--paper); border:1px solid var(--grid-strong); padding:4px 9px; border-radius:2px; color:var(--ink);}
+
+  /* phase timeline */
+  .phases{display:flex; flex-direction:column; gap:0; border-left:2px dashed var(--grid-strong); margin-left:8px; padding-left:22px;}
+  .phase{position:relative; padding-bottom:26px;}
+  .phase:last-child{padding-bottom:0;}
+  .phase::before{content:""; position:absolute; left:-27px; top:4px; width:10px; height:10px; border-radius:50%; background:var(--accent); border:2px solid var(--panel); box-shadow:0 0 0 2px var(--accent);}
+  .phase-date{font-family:var(--mono); font-size:11px; color:var(--accent-deep); text-transform:uppercase; letter-spacing:0.06em; font-weight:700;}
+  .phase-title{font-family:var(--mono); font-weight:700; font-size:14.5px; margin:3px 0 4px;}
+  .phase-desc{font-size:13.5px; color:var(--ink-soft); margin:0;}
+  .phase.now .phase-title{color:var(--accent-deep);}
+
+  /* team split */
+  .team-grid{display:grid; gap:14px; grid-template-columns:1fr;}
+  @media(min-width:640px){ .team-grid{grid-template-columns:1fr 1fr;} }
+  .team-card{background:var(--panel); border:1px solid var(--grid-strong); padding:16px 18px;}
+  .team-num{font-family:var(--mono); font-size:11px; color:var(--accent-deep); font-weight:700;}
+  .team-card p{font-size:13.5px; color:var(--ink-soft); margin:6px 0 0;}
+
+  table.timeline{border-collapse:collapse; width:100%; font-size:13.5px;}
+  table.timeline td{padding:8px 10px; border-bottom:1px solid var(--grid); vertical-align:top;}
+  table.timeline tr:last-child td{border-bottom:none;}
+  table.timeline td:first-child{font-family:var(--mono); font-weight:700; color:var(--accent-deep); white-space:nowrap; width:90px;}
+
+  .faq-item{border-bottom:1px solid var(--grid-strong); padding:16px 0;}
+  .faq-item:first-child{padding-top:0;}
+  .faq-item:last-child{border-bottom:none; padding-bottom:0;}
+  .faq-q{font-family:var(--mono); font-weight:700; font-size:14.5px; margin-bottom:6px; display:flex; gap:8px;}
+  .faq-q .tag{color:var(--accent-deep); flex:none;}
+  .faq-a{font-size:14.5px; color:var(--ink-soft); margin:0; padding-left:26px;}
+
+  .verdict{background:var(--ink); color:var(--paper); padding:26px 24px; border-radius:2px;}
+  .verdict p{color:#D7E2EC; margin:0;}
+  .verdict .eyebrow{color:var(--accent);}
+
+  footer{padding:26px 0 40px; text-align:center; font-family:var(--mono); font-size:11px; color:var(--ink-faint); letter-spacing:0.04em;}
+
+  @media (max-width:600px){
+    .meta-row{font-size:10px;} .meta-cell{flex:1 1 45%;}
+    .diag-box{min-width:110px; font-size:11px;}
+  }
+</style>
+</head>
+<body>
+
+<header class="titleblock">
+  <div class="wrap titlepad">
+    <span class="doc-tag">Concept Brief</span>
+    <h1 class="doc-title">Verified Timeline &amp; Claim Checker</h1>
+    <p class="doc-sub">A real-time, India-focused system that shows confirmed updates during fast-moving events, and lets anyone check a claim they saw elsewhere against verified sources.</p>
+    <p class="name-note">Working name suggestion: <strong>Pramaan</strong> (प्रमाण — Hindi for "proof" or "verified evidence") — open to the team to change.</p>
+    <span class="countdown"><span class="dot">&nbsp;</span>5 days to concept submission — 30 July 2026</span>
+  </div>
+  <div class="meta-row">
+    <div class="meta-cell">Event<b>TechFusion 2026</b></div>
+    <div class="meta-cell">Track<b>AI &amp; ML</b></div>
+    <div class="meta-cell">Stage<b>Concept (confirmed)</b></div>
+    <div class="meta-cell">Team split<b>4 members</b></div>
+  </div>
+</header>
+
+<nav class="jump">
+  <div class="wrap">
+    <a href="#problem">Problem</a>
+    <a href="#architecture">Architecture</a>
+    <a href="#sources">Sources</a>
+    <a href="#feed">Feed rules</a>
+    <a href="#stack">Stack</a>
+    <a href="#submission">Submission</a>
+    <a href="#plan">Plan &amp; team</a>
+    <a href="#log">Decision log</a>
+  </div>
+</nav>
+
+<main>
+
+  <section id="problem">
+    <div class="wrap">
+      <p class="eyebrow">01 — The problem</p>
+      <h2>Confirmed information can't keep up with rumor</h2>
+      <div class="problem-block">
+        <p>During protests, elections, and fast-moving political events, false and half-verified information spreads faster than confirmed updates. Mainstream news often arrives late and isn't always trusted either, so people default to scrolling Instagram, Reddit, and X, platforms where the algorithm decides what's shown, influencers add opinion without accountability, and there's no way to separate confirmed fact from rumor in real time.</p>
+        <p>The same gap exists for global geopolitics and conflicts that directly affect people in India, with no single place to see what's actually confirmed as events unfold.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="alt" id="architecture">
+    <div class="wrap">
+      <p class="eyebrow">02 — The solution</p>
+      <h2>One verification engine, two front doors</h2>
+      <p class="lede">Not a chatbot wrapper. A real data pipeline: ingest from trusted sources, classify each item, store it, then serve it two ways. This mirrors the published architecture of ClaimBuster, a real production fact-checking system, claim monitor → claim spotter → claim matcher.</p>
+
+      <div class="diagram">
+        <div class="diag-row">
+          <div class="diag-box source">PIB RSS + Fact Check<div class="diag-sub">near real-time</div></div>
+          <div class="diag-box source">ACLED conflict data<div class="diag-sub">weekly</div></div>
+        </div>
+        <div class="diag-arrow">↓</div>
+        <div class="diag-box engine">Verification Engine<div class="diag-sub" style="color:#C9D9E6;">ingest → classify (confirmed / developing / unverified) → store</div></div>
+        <div class="diag-arrow">↓</div>
+        <div class="diag-row">
+          <div class="diag-box door">Proactive Timeline<div class="diag-sub">chronological, topic-filtered</div></div>
+          <div class="diag-box door">Reactive Checker<div class="diag-sub">paste a claim → matched evidence → LLM explains in plain language</div></div>
+        </div>
+      </div>
+
+      <p style="margin-top:22px;">The LLM's only job is the last step on the right: turning already-retrieved, already-verified evidence into a plain-language explanation. It never answers from its own unverified knowledge, which is what separates this from a chatbot wrapper.</p>
+    </div>
+  </section>
+
+  <section id="sources">
+    <div class="wrap">
+      <p class="eyebrow">03 — Data sources</p>
+      <h2>What feeds the engine</h2>
+      <div class="src-grid">
+        <div class="src-card">
+          <h3>PIB RSS + Fact Check Telegram <span class="cadence live">Live</span></h3>
+          <p>Official government releases plus PIB's Fact Check Unit, which already labels claims Fake, Misleading, or confirmed after checking against official sources. Covers only Government of India-related claims.</p>
+        </div>
+        <div class="src-card">
+          <h3>ACLED <span class="cadence weekly">Weekly</span></h3>
+          <p>Free after registration. Covers protests and conflict events globally, including India, fills the gap PIB's narrow mandate leaves open. Updates weekly, labeled honestly as such in the UI.</p>
+        </div>
+        <div class="src-card">
+          <h3>X / Reddit direct ingestion <span class="cadence excluded">Not used</span></h3>
+          <p>No free API access as of 2026 for either platform, and ingesting raw social posts would reintroduce the same unverified, algorithm-driven content this project exists to fix.</p>
+        </div>
+        <div class="src-card">
+          <h3>Verified official accounts on X <span class="cadence excluded">Roadmap</span></h3>
+          <p>Monitoring specific official handles (police, ministries) is legitimate and ClaimBuster-style, but still needs paid API access. Scoped as a labeled Phase 2 item, not built now.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="alt" id="feed">
+    <div class="wrap">
+      <p class="eyebrow">04 — Feed philosophy</p>
+      <h2>Newspaper model, not algorithm model</h2>
+      <p class="lede">No inferred personalization. Two separate, transparent mechanisms instead of one black-box feed.</p>
+      <div class="table-scroll">
+        <table class="data">
+          <thead><tr><th>Topic</th><th>Source</th><th>Update cadence</th><th>Selection</th></tr></thead>
+          <tbody>
+            <tr><td>Government Claims &amp; Policy</td><td>PIB RSS + Fact Check</td><td><span class="cadence live">Live</span></td><td>Opt-in</td></tr>
+            <tr><td>Protests</td><td>ACLED</td><td><span class="cadence weekly">Weekly</span></td><td>Opt-in</td></tr>
+            <tr><td>International Conflict</td><td>ACLED</td><td><span class="cadence weekly">Weekly</span></td><td>Opt-in</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:14px;">Importance ranking (which items surface first within a topic) is rule-based and identical for every user, factoring source authority, recency, and severity, never inferred from someone's behavior.</p>
+    </div>
+  </section>
+
+  <section id="stack">
+    <div class="wrap">
+      <p class="eyebrow">05 — Tech stack</p>
+      <h2>What we're building it with</h2>
+      <div class="chips">
+        <span class="chip">React + TypeScript + Vite</span>
+        <span class="chip">Supabase</span>
+        <span class="chip">Telegram Bot API</span>
+        <span class="chip">RSS parsing</span>
+        <span class="chip">ACLED API</span>
+        <span class="chip">Groq / Gemini — synthesis only</span>
+        <span class="chip">Tailwind</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="alt" id="submission">
+    <div class="wrap">
+      <p class="eyebrow">06 — Submission reality</p>
+      <h2>Confirmed directly with organizers</h2>
+      <div class="phases">
+        <div class="phase now">
+          <div class="phase-date">25–30 Jul 2026</div>
+          <div class="phase-title">Concept stage (this week)</div>
+          <div class="phase-desc">Confirmed with Rahul Garg / Mehak Singh: a working MVP is not required. Deliverable is a concept document with architecture, wireframes, and a phased roadmap. We're building a thin-slice working demo anyway to stand out beyond a slide deck.</div>
+        </div>
+        <div class="phase">
+          <div class="phase-date">2 Aug 2026</div>
+          <div class="phase-title">Shortlist announced</div>
+          <div class="phase-desc">Evening announcement of teams advancing to the prototype stage.</div>
+        </div>
+        <div class="phase">
+          <div class="phase-date">3–7 Aug 2026</div>
+          <div class="phase-title">Prototype refinement week</div>
+          <div class="phase-desc">The real build sprint, if shortlisted. OCR/screenshot and video-caption checking, and official-account monitoring, get built here, not this week.</div>
+        </div>
+        <div class="phase">
+          <div class="phase-date">8 Aug 2026</div>
+          <div class="phase-title">Grand Finale</div>
+          <div class="phase-desc">Online presentation and evaluation by industry experts. Live polling of PIB/ACLED during the demo, with recent verified events preloaded as backup.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="plan">
+    <div class="wrap">
+      <p class="eyebrow">07 — This week's plan &amp; team split</p>
+      <h2>25–30 July</h2>
+      <table class="timeline">
+        <tr><td>Day 1</td><td>Repo + Supabase schema, PIB RSS/Telegram ingestion script</td></tr>
+        <tr><td>Day 2</td><td>ACLED registration + data pull, matching/retrieval logic for the checker</td></tr>
+        <tr><td>Day 3</td><td>Frontend: timeline view, topic filters, reactive checker UI</td></tr>
+        <tr><td>Day 4</td><td>Narrow LLM synthesis layer, integration testing, architecture diagram + wireframes for the concept doc</td></tr>
+        <tr><td>Day 5</td><td>Polish demo, finalize concept doc + pitch deck, submit</td></tr>
+      </table>
+
+      <h2 style="margin-top:30px;">Who's doing what</h2>
+      <div class="team-grid">
+        <div class="team-card"><div class="team-num">Person 1</div><p><strong>Data ingestion</strong> — PIB RSS + Telegram, ACLED pull, stored into Supabase with confidence tags.</p></div>
+        <div class="team-card"><div class="team-num">Person 2</div><p><strong>Matching engine</strong> — retrieval logic for the checker, plus the narrow LLM synthesis step on top of retrieved matches.</p></div>
+        <div class="team-card"><div class="team-num">Person 3</div><p><strong>Frontend</strong> — timeline view and reactive checker UI.</p></div>
+        <div class="team-card"><div class="team-num">Person 4</div><p><strong>Concept doc</strong> — wireframes, architecture diagram, pitch deck, and end-to-end integration testing.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="alt" id="log">
+    <div class="wrap">
+      <p class="eyebrow">08 — Decision log</p>
+      <h2>Why it's built this way</h2>
+
+      <div class="faq-item">
+        <p class="faq-q"><span class="tag">Q.</span> Why not just a chatbot?</p>
+        <p class="faq-a">A wrapper answers from an LLM's own training. This retrieves real, verified evidence first and only uses the LLM to explain it, the same retrieval-augmented pattern ClaimBuster uses in production.</p>
+      </div>
+      <div class="faq-item">
+        <p class="faq-q"><span class="tag">Q.</span> Why not personalize the feed like social media does?</p>
+        <p class="faq-a">Inferred personalization is the exact mechanism the project is built to fix. Newspaper-style opt-in topics plus transparent, identical-for-everyone ranking avoids rebuilding the same problem.</p>
+      </div>
+      <div class="faq-item">
+        <p class="faq-q"><span class="tag">Q.</span> Why not pull directly from X or Reddit?</p>
+        <p class="faq-a">Neither has free API access in 2026, and raw social posts aren't verified. The reactive checker already covers "I saw this on social media", the user pastes it, no ingestion needed.</p>
+      </div>
+      <div class="faq-item">
+        <p class="faq-q"><span class="tag">Q.</span> Why PIB and ACLED specifically?</p>
+        <p class="faq-a">Both are real, free or low-barrier, and structured. PIB's mandate only covers Government of India claims, which is exactly why ACLED is needed to cover protests and conflict.</p>
+      </div>
+      <div class="faq-item">
+        <p class="faq-q"><span class="tag">Q.</span> Why build working software when only a concept is due?</p>
+        <p class="faq-a">Most teams will submit slides only. A working thin-slice demo proves the hardest technical claim, that the engine actually works, and stands out immediately.</p>
+      </div>
+      <div class="faq-item">
+        <p class="faq-q"><span class="tag">Q.</span> Which track do we submit under?</p>
+        <p class="faq-a">AI &amp; ML. The retrieval, classification, and matching logic is the core innovation, even though the problem itself touches current affairs and civic information.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="close">
+    <div class="wrap">
+      <div class="verdict">
+        <p class="eyebrow">Status</p>
+        <p>Design fully resolved. Sources verified as real and accessible. Scope matched to what's actually due by 30 July. Ready to build.</p>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  Prepared for team review — TechFusion Innovation Challenge 2026 — Concept submission 30 Jul 2026
+</footer>
+
+</body>
+</html>
