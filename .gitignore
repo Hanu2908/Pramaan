@@ -54,7 +54,10 @@ supabase/.temp/
 supabase/.branches/
 .env.keys
 
-# Agents & AI Workspace artifacts
+# Agents & AI Workspace Skills & Artifacts
+.agents/
+skills/
+skills-lock.json
 .antigravity_rules.md
 pramaan-decisions-brief.html
 verified-timeline-concept-brief.html
