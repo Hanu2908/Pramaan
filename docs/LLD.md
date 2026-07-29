@@ -36,7 +36,7 @@ Stores user queries and the synthesized results for the Reactive Checker.
 - `media_url` (String, Optional)
 - `synthetic_score` (Float) - From Reality Defender
 - `extracted_entities` (JSONB)
-- `confidence_tier` (Enum: `CONFIRMED`, `DEVELOPING`, `UNVERIFIED`, `NO_RECORD`)
+- `confidence_tier` (Enum: `CONFIRMED`, `REFUTED`, `DEVELOPING`, `UNVERIFIED`, `NO_RECORD`)
 - `synthesized_verdict` (Text)
 - `created_at` (Timestamp)
 
@@ -50,25 +50,26 @@ Maps which `evidence_items` were used to reach a verdict for a specific `claim_c
 
 ### `ingest-news`
 - **Trigger**: pg_cron every 4 hours (all sources); every 24h for ACLED.
-- **Payload**: `{ source: 'all' | 'pib' | 'altnews' | 'factly' | 'newsdata' | 'acled' }`
+- **Payload**: `{ source: 'all' | 'pib' | 'pib_telegram' | 'altnews' | 'factly' | 'newsdata' | 'acled' }`
 - **Logic**: 
-  1. Pulls data from PIB RSS, Alt News RSS, Factly RSS, NewsData.io API, ACLED API.
+  1. Pulls data from PIB RSS, PIB Telegram (`@PIB_FactCheck`), Alt News RSS, Factly RSS, NewsData.io API, and ACLED API.
   2. Idempotent upsert by `source_url` — never duplicates.
   3. Routes to Lane 1 (PIB, ACLED) or Lane 2 (others) via `is_direct_record`.
   4. Calls `gemini-embedding-001` (768 dims) to generate embedding.
 
 ### `check-claim`
-- **Trigger**: HTTP POST from Frontend.
-- **Payload**: `{ text?: string, media_url?: string }`
+- **Trigger**: HTTP POST from Frontend / client library (`supabase.functions.invoke('check-claim', ...)`).
+- **Payload**: `{ text?: string, media_url?: string, input_type?: 'text' | 'image' | 'audio' }`
 - **Logic**: Executes the 7-Stage Engine.
-  1. Calls Groq Whisper/Vision if media is present.
-  2. Calls Reality Defender for `synthetic_score`.
-  3. Calls Groq LLM for entity JSON.
-  4. Queries Supabase using entities (Structured Filter).
-  5. If required, generates embedding via Gemini and runs `pgvector` similarity search.
-  6. Calculates Confidence Tier.
-  7. Synthesizes final response via Groq.
-- **Response**: `{ tier: string, verdict: string, sources: [] }`
+  1. Calls **Groq Vision** (`llama-4-scout-17b-16e-instruct`) for OCR or **Groq Whisper** (`whisper-large-v3-turbo`) for audio transcription if media is present.
+  2. Calls **Reality Defender** for `synthetic_score` (if media provided).
+  3. Calls **Groq LLM** (`llama-3.3-70b-versatile`) for structured entity JSON (`location`, `date_range`, `actors`, `keywords`, `topic_slug`).
+  4. Queries Supabase using entities (Structured SQL Filter).
+  5. Generates embedding via `gemini-embedding-001` (768-dim) and runs `pgvector` similarity search (`match_evidence` RPC).
+  6. Calculates Confidence Tier (`CONFIRMED`, `REFUTED`, `DEVELOPING`, `UNVERIFIED`, `NO_RECORD`) with explicit refutation keyword checks.
+  7. Fallback to **Gemini 2.0 Flash** web grounding if no local DB matches exist.
+  8. Synthesizes final response via Groq `llama-3.3-70b-versatile`, strictly constrained to retrieved evidence.
+- **Response**: `{ id: string, tier: string, score: number, verdict: string, sources: [], synthetic_score: number | null, used_web_grounding: boolean }`
 
 ### `fact-check-lookup`
 - Logic: Parses individual article JSON-LD for enhanced metadata.

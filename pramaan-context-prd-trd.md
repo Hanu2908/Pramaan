@@ -42,7 +42,7 @@ This engine powers both the proactive feed (auto-corroboration) and the reactive
 2.  **Entity Extraction (NLP):** Groq extracts location, date range, actors, and topic into a strict JSON schema.
 3.  **Structured Filtering:** Fast SQL filter against the Supabase evidence store using extracted entities.
 4.  **Semantic Re-ranking:** Gemini generates embeddings for `claim_text`. Compare via cosine similarity (Supabase pgvector).
-5.  **Confidence Scoring:** Calculate tier (Confirmed / Developing / Unverified / No Record Found) based on source agreement, similarity score, source authority, and recency. *Note: PIB Fact Check alone is insufficient for top-tier; requires agreement with an independent source like Alt News.*
+5.  **Confidence Scoring:** Calculate tier (Confirmed / Refuted / Developing / Unverified / No Record Found) based on source agreement, similarity score, source authority, recency, and explicit refutation keywords. *Note: PIB Fact Check alone is insufficient for top-tier; requires agreement with an independent source like Alt News.*
 6.  **Fallback:** If Stage 4 yields nothing, use Gemini web grounding (strictly labeled "unofficial").
 7.  **Constrained Synthesis:** Groq explains matched evidence in plain language. *Must cite sources by name; must not state anything unsupported by evidence.*
 

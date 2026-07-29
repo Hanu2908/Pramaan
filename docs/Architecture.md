@@ -88,8 +88,8 @@ flowchart TD
     S4[Stage 4: Semantic Re-ranking]
     S4a(Gemini Embeddings + pgvector cosine similarity)
     
-    S5[Stage 5: Confidence Scoring]
-    S5a(Rules: Source Agreement, Recency, Authority)
+    S5[Stage 5: Confidence & Refutation Scoring]
+    S5a(Rules: CONFIRMED, REFUTED, DEVELOPING, UNVERIFIED, NO_RECORD based on agreement & refutation keywords)
     
     S6[Stage 6: Fallback]
     S6a(If S4 is empty: Gemini Web Grounding)

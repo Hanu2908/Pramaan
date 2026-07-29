@@ -205,35 +205,43 @@ function scoreConfidence(
 // ── Stage 6: Gemini Web Grounding Fallback ───────────────────
 async function webGroundingFallback(claimText: string): Promise<string> {
   const apiKey = Deno.env.get("GEMINI_API_KEY");
-  if (!apiKey) throw new Error("Missing GEMINI_API_KEY for web grounding");
+  if (!apiKey) return "No grounding key provided.";
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              {
-                text: `Fact-check this claim using web search. Provide factual evidence from verified news outlets. Claim: "${claimText}"`,
-              },
-            ],
-          },
-        ],
-        tools: [{ google_search: {} }],
-        generationConfig: { temperature: 0.1, maxOutputTokens: 512 },
-      }),
-    },
-  );
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  text: `Fact-check this claim using web search. Provide factual evidence from verified news outlets. Claim: "${claimText}"`,
+                },
+              ],
+            },
+          ],
+          tools: [{ google_search: {} }],
+          generationConfig: { temperature: 0.1, maxOutputTokens: 512 },
+        }),
+      },
+    );
 
-  if (!res.ok) throw new Error(`Gemini grounding error: ${res.status}`);
-  const data = await res.json();
-  return (
-    data.candidates?.[0]?.content?.parts?.[0]?.text ??
-    "No grounding results available."
-  );
+    if (!res.ok) {
+      console.warn(`Gemini grounding error ${res.status}`);
+      return "Web search currently unavailable.";
+    }
+    const data = await res.json();
+    return (
+      data.candidates?.[0]?.content?.parts?.[0]?.text ??
+      "No grounding results available."
+    );
+  } catch (gErr) {
+    console.warn("Web grounding fallback failed:", gErr);
+    return "Web search unavailable.";
+  }
 }
 
 // ── Main Handler ─────────────────────────────────────────────
