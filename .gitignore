@@ -21,6 +21,13 @@ build/
 .env.*.local
 *.env
 
+# Scraper & Temporary Test Output Artifacts
+scripts/pib_telegram_posts.json
+scripts/stress_test_results.json
+scripts/test_pib_telegram.js
+scripts/scrape_pib_telegram.js
+scripts/verify_remote_db.js
+
 # Logs
 logs/
 *.log
