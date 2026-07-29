@@ -1,11 +1,63 @@
-node_modules
-dist
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Testing & Coverage
+coverage/
+
+# Production / Build Output
+dist/
+dist-ssr/
+build/
+*.out
+
+# Environment Variables & Secrets
 .env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*.local
+*.env
+
+# Scraper & Temporary Test Output Artifacts
+scripts/pib_telegram_posts.json
+scripts/stress_test_results.json
+scripts/test_pib_telegram.js
+scripts/scrape_pib_telegram.js
+scripts/verify_remote_db.js
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Editor & System Files
 .DS_Store
-dist-ssr
-*.local
-.npm
-.yarn
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+Thumbs.db
+
+# Supabase
+supabase/.temp/
+supabase/.branches/
+.env.keys
+
+# Agents & AI Workspace Skills & Artifacts
+.agents/
+skills/
+skills-lock.json
+.antigravity_rules.md
 pramaan-decisions-brief.html
 verified-timeline-concept-brief.html
-.antigravity_rules.md

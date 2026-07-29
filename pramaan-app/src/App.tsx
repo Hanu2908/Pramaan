@@ -3,19 +3,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Navbar } from './components/Navbar';
 import { NewsList } from './components/NewsCard';
 import { ClaimChecker } from './components/ClaimChecker';
+import { TopicFilter } from './components/TopicFilter';
+import { StatsBar } from './components/StatsBar';
 import { ThemeProvider } from './context/ThemeContext';
 import { MOCK_NEWS, SOURCES_META, type TopicCategory, type NewsItem } from './data/mockData';
 import { supabase } from './lib/supabase';
 import './index.css';
-
-const TOPICS: { id: TopicCategory; label: string }[] = [
-  { id: 'all',        label: 'Latest' },
-  { id: 'government', label: 'Government' },
-  { id: 'protests',   label: 'Protests' },
-  { id: 'conflict',   label: 'Conflict' },
-  { id: 'health',     label: 'Health' },
-  { id: 'deepfake',   label: 'Deepfakes' },
-];
 
 function App() {
   const [view, setView] = useState<'timeline' | 'checker'>('timeline');
@@ -28,13 +21,21 @@ function App() {
         lane: 'all',
         page_size: 10
       });
+
       if (!error && data) {
         const mapped: NewsItem[] = data.map((item: any) => {
-          let conf = 'unverified';
-          const verdict = item.entities?.verdict || 'VERIFIED';
-          if (verdict === 'VERIFIED' || verdict === 'TRUE') conf = 'confirmed';
-          else if (verdict === 'FALSE' || verdict === 'FAKE') conf = 'unverified';
-          else conf = 'developing';
+          let conf = item.confidence_tier ? item.confidence_tier.toLowerCase() : 'unverified';
+          if (!item.confidence_tier) {
+            conf = item.is_direct_record ? 'confirmed' : 'developing';
+          }
+
+          const rawSlug = (item.topic_slug || 'government').toLowerCase();
+          let matchedTopic: TopicCategory = 'government';
+          if (['government', 'protests', 'conflict', 'health', 'deepfake'].includes(rawSlug)) {
+            matchedTopic = rawSlug as TopicCategory;
+          } else if (rawSlug === 'international') {
+            matchedTopic = 'conflict';
+          }
 
           return {
             id: item.id,
@@ -42,7 +43,7 @@ function App() {
             summary: item.normalized_content,
             confidence: conf as any,
             lane: item.is_direct_record ? 'direct' : 'verified',
-            topic: item.topic_name as any || 'government',
+            topic: matchedTopic,
             sources: [item.source_name as any || 'PIB RSS'],
             timestamp: new Date(item.published_at).toISOString(),
           };
@@ -78,36 +79,26 @@ function App() {
                   transition={{ duration: 0.4, ease: [0.16,1,0.3,1] }}>
                   
                   {/* Hero Header */}
-                  <header style={{ marginBottom: 80, maxWidth: 900 }}>
+                  <header style={{ marginBottom: 48, maxWidth: 900 }}>
                     <p className="eyebrow" style={{ marginBottom: 24 }}>TechFusion 2026 · Civic Intelligence</p>
                     <h1 style={{ marginBottom: 32 }}>
                       Verified truth, <br/>
                       <span style={{ color: 'var(--text-tertiary)' }}>not algorithmic rumour.</span>
                     </h1>
-                    <p style={{ fontSize: 'clamp(16px, 2vw, 20px)', color: 'var(--text-secondary)', maxWidth: '42ch', lineHeight: 1.6 }}>
+                    <p style={{ fontSize: 'clamp(16px, 2vw, 20px)', color: 'var(--text-secondary)', maxWidth: '42ch', lineHeight: 1.6, marginBottom: 32 }}>
                       India's real-time, multi-source news verification pipeline. Evidence-retrieved, not AI-hallucinated.
                     </p>
+
+                    <StatsBar />
                   </header>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 64 }} className="main-grid">
                     
                     {/* Left: Feed */}
                     <div>
-                      {/* Topics */}
-                      <div style={{ display: 'flex', gap: 24, borderBottom: '1px solid var(--border)', paddingBottom: 16, marginBottom: 16, overflowX: 'auto' }}>
-                        {TOPICS.map(t => {
-                          const active = topic === t.id;
-                          return (
-                            <button key={t.id} onClick={() => setTopic(t.id)}
-                              style={{
-                                fontFamily: 'var(--font-sans)', fontSize: 14, fontWeight: active ? 600 : 400,
-                                color: active ? 'var(--text-primary)' : 'var(--text-tertiary)',
-                                transition: 'color var(--dur-base)', whiteSpace: 'nowrap'
-                              }}>
-                              {t.label}
-                            </button>
-                          );
-                        })}
+                      {/* Topic Filter */}
+                      <div style={{ marginBottom: 24, borderBottom: '1px solid var(--border)', paddingBottom: 16 }}>
+                        <TopicFilter active={topic} onChange={setTopic} />
                       </div>
 
                       <NewsList items={filtered} />

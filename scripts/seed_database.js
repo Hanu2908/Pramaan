@@ -1,24 +1,25 @@
 const { createClient } = require('@supabase/supabase-js');
 const dotenv = require('dotenv');
+const path = require('path');
 
-dotenv.config();
+dotenv.config({ path: path.join(__dirname, '../pramaan-app/.env.local') });
+dotenv.config({ path: path.join(__dirname, '../.env') });
 
-// Ensure keys are provided
 const supabaseUrl = 'https://isqdqjubveytsvzyusyq.supabase.co';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const geminiKey = process.env.GEMINI_API_KEY;
 
 if (!supabaseKey || !geminiKey) {
   console.error("Missing SUPABASE_SERVICE_ROLE_KEY or GEMINI_API_KEY");
-  process.exit(1);
 }
 
-const supabase = createClient(supabaseUrl, supabaseKey);
+const supabase = createClient(supabaseUrl, supabaseKey || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlzcWRxanVidmV5dHN2enl1c3lxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUxOTc4MzAsImV4cCI6MjEwMDc3MzgzMH0.NyD06h8j84FiWl00Cn0RAiIWnGEZzWt0N7k_iOPgK7k");
 
-// --- Curated Data (Real-World Style Records) ---
+// --- Curated Data Across All Topics ---
 const mockRecords = [
+  // Government
   {
-    sourceName: 'PIB Fact Check', topicSlug: 'government', isDirectRecord: true,
+    sourceName: 'PIB', topicSlug: 'government', isDirectRecord: true,
     headline: 'Fake notification regarding free laptop distribution for students',
     content: 'A fraudulent WhatsApp message claims the Ministry of Education is distributing free laptops to all students. This is completely FAKE. The Government of India has not launched any such scheme.',
     url: 'https://factcheck.pib.gov.in/fake-laptop-scheme',
@@ -26,22 +27,17 @@ const mockRecords = [
   },
   {
     sourceName: 'PIB', topicSlug: 'government', isDirectRecord: true,
-    headline: 'Cabinet approves new agricultural export policy',
-    content: 'The Union Cabinet has approved a new policy to boost agricultural exports to $60 billion by 2026. The policy focuses on removing export restrictions on organic products.',
-    url: 'https://pib.gov.in/PressRelease.aspx?PRID=123456',
+    headline: 'Cabinet approves PLI scheme expansion for semiconductor manufacturing',
+    content: 'The Union Cabinet has approved a new policy to extend semiconductor production incentives to ATMP packaging facilities with an outlay of ₹22,000 crore.',
+    url: 'https://pib.gov.in/PressRelease.aspx?PRID=192837',
     date: new Date(Date.now() - 86400000).toISOString()
   },
-  {
-    sourceName: 'PIB Fact Check', topicSlug: 'government', isDirectRecord: true,
-    headline: 'No, Aadhaar linkage is not mandatory for private bank accounts',
-    content: 'A viral social media post claims that failing to link Aadhaar to private bank accounts by Friday will freeze them. This is FALSE. The RBI has clarified that Aadhaar linking is voluntary for non-DBT accounts.',
-    url: 'https://factcheck.pib.gov.in/aadhaar-private-banks',
-    date: new Date(Date.now() - 172800000).toISOString()
-  },
+
+  // Protests
   {
     sourceName: 'Alt News', topicSlug: 'protests', isDirectRecord: false,
     headline: 'Old video of police lathi-charge falsely shared as recent farmer protest',
-    content: 'A video showing police using water cannons and batons on crowds is circulating with claims it depicts the ongoing farmer protests in Haryana. Alt News verified this video is actually from a 2019 protest in a different state.',
+    content: 'A video showing police using water cannons and batons on crowds is circulating with claims it depicts recent farmer protests in Haryana. Alt News verified this video is actually from a 2019 protest in a different state.',
     url: 'https://www.altnews.in/old-video-police-haryana-farmers/',
     date: new Date(Date.now() - 3600000).toISOString()
   },
@@ -49,16 +45,11 @@ const mockRecords = [
     sourceName: 'ACLED', topicSlug: 'protests', isDirectRecord: true,
     headline: 'Peaceful demonstrations reported across Punjab over minimum support price',
     content: 'ACLED data confirms widespread but peaceful demonstrations by farmers unions across 12 districts in Punjab, demanding a legal guarantee for Minimum Support Price (MSP). No violence was reported.',
-    url: 'https://acleddata.com/dashboard',
+    url: 'https://acleddata.com/dashboard/punjab-protests',
     date: new Date(Date.now() - 7200000).toISOString()
   },
-  {
-    sourceName: 'Alt News', topicSlug: 'protests', isDirectRecord: false,
-    headline: 'Doctored image shows protest leaders meeting with foreign diplomats',
-    content: 'An image going viral allegedly shows protest organizers secretly meeting with foreign ambassadors in Delhi. Analysis of the image shows it has been digitally altered; the original photograph was from a public trade summit in 2022.',
-    url: 'https://www.altnews.in/doctored-image-protest-leaders-diplomats/',
-    date: new Date(Date.now() - 400000000).toISOString()
-  },
+
+  // Elections
   {
     sourceName: 'Factly', topicSlug: 'elections', isDirectRecord: false,
     headline: 'Misleading claim about EVM tampering in recent state polls',
@@ -66,47 +57,66 @@ const mockRecords = [
     url: 'https://factly.in/evm-tampering-video-is-actually-a-mock-drill/',
     date: new Date().toISOString()
   },
+
+  // Health
   {
-    sourceName: 'PIB Fact Check', topicSlug: 'elections', isDirectRecord: true,
-    headline: 'Fake voter deletion lists circulating in Maharashtra',
-    content: 'The Election Commission has debunked fake PDF lists circulating on Telegram claiming millions of voters were deleted in Maharashtra. Citizens should only verify their voter status on the official ECI portal.',
-    url: 'https://factcheck.pib.gov.in/eci-fake-voter-list',
-    date: new Date(Date.now() - 5000000).toISOString()
+    sourceName: 'PIB', topicSlug: 'health', isDirectRecord: true,
+    headline: 'Health Ministry issues advisory on JN.1 subvariant resurgence in 4 states',
+    content: 'PIB confirms official Ministry advisory covering Maharashtra, Kerala, Tamil Nadu, and Karnataka. No emergency declaration issued. Booster uptake recommended for 60+ and immunocompromised.',
+    url: 'https://pib.gov.in/PressRelease.aspx?PRID=198273',
+    date: new Date(Date.now() - 10000000).toISOString()
   },
   {
-    sourceName: 'Alt News', topicSlug: 'elections', isDirectRecord: false,
-    headline: 'False quote attributed to opposition leader regarding tax hikes',
-    content: 'A graphic featuring a prominent opposition leader claims they promised to double income taxes if elected. Alt News reviewed all recent speeches and manifestos and found no such statement. The quote is fabricated.',
-    url: 'https://www.altnews.in/fabricated-quote-opposition-tax-hikes/',
+    sourceName: 'Alt News', topicSlug: 'health', isDirectRecord: false,
+    headline: 'Viral clip claiming instant herbal cure for dengue is unfounded',
+    content: 'A social media video claiming a papaya leaf extract recipe completely cures severe dengue in 2 hours is misleading. Medical experts confirm while papaya extract can support platelet recovery, it is not a standalone cure and medical monitoring is essential.',
+    url: 'https://www.altnews.in/herbal-dengue-cure-claim-factcheck/',
     date: new Date(Date.now() - 15000000).toISOString()
   },
+
+  // Conflict
   {
-    sourceName: 'Alt News', topicSlug: 'international', isDirectRecord: false,
-    headline: 'Video game footage passed off as real military strike',
-    content: 'A widely shared video claiming to show an air defense system intercepting missiles in a conflict zone is actually footage from the video game ARMA 3. The developers have previously warned about their simulation being misused as real combat footage.',
-    url: 'https://www.altnews.in/arma3-video-game-footage-military-strike/',
-    date: new Date().toISOString()
+    sourceName: 'ACLED', topicSlug: 'conflict', isDirectRecord: true,
+    headline: 'Fresh clashes reported in Churachandpur; ACLED records two incidents',
+    content: 'Armed conflict events logged by ACLED in Churachandpur district. PIB and Alt News have not independently corroborated. Casualty figures from social media remain unverified.',
+    url: 'https://acleddata.com/dashboard/manipur-clashes',
+    date: new Date(Date.now() - 13000000).toISOString()
   },
+
+  // Deepfake
   {
-    sourceName: 'NewsData.io', topicSlug: 'international', isDirectRecord: true,
-    headline: 'UN Security Council votes on new ceasefire resolution',
-    content: 'The UN Security Council passed a resolution demanding an immediate ceasefire. The resolution was adopted with 14 votes in favor and 1 abstention. Diplomatic efforts are ongoing to ensure compliance.',
-    url: 'https://newsdata.io/un-ceasefire-resolution',
-    date: new Date(Date.now() - 8000000).toISOString()
+    sourceName: 'Alt News', topicSlug: 'deepfake', isDirectRecord: false,
+    headline: 'Viral video claiming Indian Army withdrawal from Depsang is AI-generated',
+    content: 'Reality Defender returns synthetic score of 0.94 — high confidence this is AI-generated video. No corroborating evidence from PIB or ACLED. Visual artefacts consistent with face-swap diffusion model.',
+    url: 'https://www.altnews.in/ai-generated-depsang-video-factcheck/',
+    date: new Date(Date.now() - 7000000).toISOString()
   },
+
+  // Science & Tech
   {
-    sourceName: 'Factly', topicSlug: 'government', isDirectRecord: false,
-    headline: 'Deepfake audio of CEO declaring bankruptcy',
-    content: 'An audio clip of a major Indian bank CEO stating the bank is bankrupt is an AI-generated deepfake. The bank has filed a police complaint and released their healthy quarterly financial statements.',
-    url: 'https://factly.in/bank-ceo-deepfake-audio/',
-    date: new Date().toISOString()
+    sourceName: 'NewsData.io', topicSlug: 'science-tech', isDirectRecord: true,
+    headline: 'ISRO successfully launches NVS-02 navigation satellite from Sriharikota',
+    content: 'India space agency confirms NVS-02 placed in geosynchronous transfer orbit. Second satellite in the NavIC constellation, strengthening indigenous navigation infrastructure.',
+    url: 'https://newsdata.io/isro-nvs02-launch',
+    date: new Date(Date.now() - 5000000).toISOString()
   },
+
+  // Economy
   {
-    sourceName: 'Google Fact Check', topicSlug: 'government', isDirectRecord: false,
-    headline: 'Claim that new currency notes have GPS tracking chips is false',
-    content: 'Social media users continue to share the old rumor that new currency notes have a nano-GPS chip embedded in them to track black money. The RBI has repeatedly clarified there is no such technology in the notes.',
-    url: 'https://toolbox.google.com/factcheck/gps-notes',
-    date: new Date(Date.now() - 500000).toISOString()
+    sourceName: 'Factly', topicSlug: 'economy', isDirectRecord: false,
+    headline: 'Claim that RBI is withdrawing 500 rupee notes with satellite GPS chip is FALSE',
+    content: 'Social media posts claiming the RBI will withdraw ₹500 currency notes and replace them with nano-GPS tracking notes is completely FALSE. RBI has issued no such order.',
+    url: 'https://factly.in/rbi-500-note-gps-chip-rumor-false/',
+    date: new Date(Date.now() - 2000000).toISOString()
+  },
+
+  // Disaster
+  {
+    sourceName: 'NewsData.io', topicSlug: 'disaster', isDirectRecord: true,
+    headline: 'NDRF deploys 10 rescue teams following heavy rainfall in coastal Odisha',
+    content: 'The National Disaster Response Force has deployed 10 teams across vulnerable districts in coastal Odisha following IMD heavy rainfall warnings.',
+    url: 'https://newsdata.io/ndrf-odisha-rain-relief',
+    date: new Date(Date.now() - 9000000).toISOString()
   }
 ];
 
@@ -124,15 +134,14 @@ async function fetchMetadata() {
 }
 
 async function generateEmbedding(text) {
+  if (!geminiKey) return null;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${geminiKey}`;
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: 'models/gemini-embedding-001',
-      content: {
-        parts: [{ text: text }]
-      },
+      content: { parts: [{ text }] },
       taskType: "RETRIEVAL_DOCUMENT",
       outputDimensionality: 768
     })
@@ -149,26 +158,27 @@ async function run() {
   console.log("Fetching database metadata...");
   await fetchMetadata();
 
-  console.log(`Seeding ${mockRecords.length} records...`);
+  console.log(`Seeding ${mockRecords.length} records across all categories...`);
   
   for (const record of mockRecords) {
     const topicId = topicCache[record.topicSlug] || topicCache['government'];
-    const sourceId = sourceCache[record.sourceName];
+    const sourceId = sourceCache[record.sourceName] || sourceCache['PIB'];
 
     if (!sourceId) {
       console.warn(`Source not found in DB: ${record.sourceName}. Skipping.`);
       continue;
     }
 
-    console.log(`Embedding: ${record.headline}`);
+    console.log(`Processing: ${record.headline}`);
     const textToEmbed = `${record.headline}\n${record.content}`;
     
-    let embedding;
-    try {
-      embedding = await generateEmbedding(textToEmbed);
-    } catch (e) {
-      console.error(`Failed to generate embedding for "${record.headline}"`, e);
-      continue;
+    let embedding = null;
+    if (geminiKey) {
+      try {
+        embedding = await generateEmbedding(textToEmbed);
+      } catch (e) {
+        console.warn(`Embedding skipped for "${record.headline}": ${e.message}`);
+      }
     }
 
     const { error } = await supabase.from('evidence_items').insert({
@@ -184,12 +194,10 @@ async function run() {
     });
 
     if (error) {
-      console.error(`Failed to insert record in DB:`, error);
+      console.error(`Failed to insert record:`, error.message);
     } else {
       console.log(`Inserted successfully.`);
     }
-    
-    await new Promise(resolve => setTimeout(resolve, 1000));
   }
   
   console.log("Seeding complete!");

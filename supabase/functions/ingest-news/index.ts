@@ -2,23 +2,22 @@
 // functions/ingest-news/index.ts
 // Supabase Edge Function — Scheduled Ingestion
 //
-// Pulls from NewsData.io, PIB RSS, Alt News RSS, Factly RSS,
-// and ACLED API. Normalizes content, routes to Lane 1 or 2,
-// generates Gemini embeddings, and writes to evidence_items.
-//
-// Trigger: Scheduled via pg_cron (see migration 003)
+// Pulls from NewsData.io, PIB RSS, PIB Telegram FactCheck (@PIB_FactCheck),
+// Alt News RSS, Factly RSS, and ACLED API.
+// Normalizes content, routes to Lane 1 or 2, assigns topic_id,
+// and generates Gemini embeddings.
 // ============================================================
 
 import { handleCors, corsHeaders } from "../_shared/cors.ts";
 import { getAdminClient } from "../_shared/supabaseClient.ts";
 import { generateEmbedding } from "../_shared/gemini.ts";
 
-// ── RSS Parser (minimal, no external library needed) ─────────
 interface RssItem {
   title: string;
   link: string;
   description: string;
   pubDate: string;
+  topicSlug?: string;
 }
 
 async function fetchRss(url: string): Promise<RssItem[]> {
@@ -30,7 +29,6 @@ async function fetchRss(url: string): Promise<RssItem[]> {
   const xml = await res.text();
   const items: RssItem[] = [];
 
-  // Simple regex-based XML extraction (avoids DOM parser dependency)
   const itemMatches = xml.matchAll(/<item>([\s\S]*?)<\/item>/g);
   for (const match of itemMatches) {
     const block = match[1];
@@ -45,6 +43,62 @@ async function fetchRss(url: string): Promise<RssItem[]> {
       description: get("description").replace(/<[^>]+>/g, " ").trim(),
       pubDate: get("pubDate"),
     });
+  }
+  return items;
+}
+
+// ── PIB Telegram (@PIB_FactCheck) Feed Parser ──────────────
+async function fetchPibTelegram(): Promise<RssItem[]> {
+  const url = "https://t.me/s/PIB_FactCheck";
+  const res = await fetch(url, {
+    headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+  });
+  if (!res.ok) return [];
+
+  const html = await res.text();
+  const items: RssItem[] = [];
+
+  const messageBlocks = html.matchAll(/<div class="tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/g);
+  let count = 0;
+  for (const match of messageBlocks) {
+    count++;
+    let rawText = match[1];
+    let text = rawText
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<[^>]+>/g, "")
+      .replace(/&quot;/g, '"')
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .trim();
+
+    if (text.length > 20) {
+      const lines = text.split("\n").filter((l) => l.trim().length > 0);
+      const headline = lines[0].slice(0, 120);
+
+      // Infer topic slug based on keywords
+      const lower = text.toLowerCase();
+      let topicSlug = "government";
+      if (lower.includes("deepfake") || lower.includes("ai-generated") || lower.includes("synthetic")) {
+        topicSlug = "deepfake";
+      } else if (lower.includes("protest") || lower.includes("clash") || lower.includes("police")) {
+        topicSlug = "protests";
+      } else if (lower.includes("election") || lower.includes("vote") || lower.includes("evm")) {
+        topicSlug = "elections";
+      } else if (lower.includes("health") || lower.includes("virus") || lower.includes("dengue") || lower.includes("hospital")) {
+        topicSlug = "health";
+      } else if (lower.includes("army") || lower.includes("military") || lower.includes("defense") || lower.includes("border")) {
+        topicSlug = "conflict";
+      }
+
+      items.push({
+        title: headline,
+        link: `https://t.me/PIB_FactCheck/${count}`,
+        description: text,
+        pubDate: new Date().toISOString(),
+        topicSlug,
+      });
+    }
   }
   return items;
 }
@@ -123,14 +177,30 @@ async function getSourceId(supabase: ReturnType<typeof getAdminClient>, name: st
     .from("sources")
     .select("id")
     .eq("name", name)
-    .single();
+    .maybeSingle();
+  
+  if (data?.id) return data.id;
+
+  // Fallback lookup if exact name doesn't match
+  const { data: fallback } = await supabase
+    .from("sources")
+    .select("id")
+    .ilike("name", `%${name}%`)
+    .limit(1)
+    .maybeSingle();
+
+  return fallback?.id ?? null;
+}
+
+async function getTopicIdBySlug(supabase: ReturnType<typeof getAdminClient>, slug: string): Promise<string | null> {
+  const { data } = await supabase
+    .from("topics")
+    .select("id")
+    .eq("slug", slug)
+    .maybeSingle();
   return data?.id ?? null;
 }
 
-/**
- * Upsert an evidence item. Skips if source_url already exists.
- * Generates embedding async after insert.
- */
 async function upsertEvidence(
   supabase: ReturnType<typeof getAdminClient>,
   item: {
@@ -145,7 +215,6 @@ async function upsertEvidence(
     isDirectRecord: boolean;
   },
 ): Promise<string | null> {
-  // Skip if already ingested (idempotent)
   const { data: existing } = await supabase
     .from("evidence_items")
     .select("id")
@@ -154,7 +223,6 @@ async function upsertEvidence(
 
   if (existing) return null;
 
-  // Insert
   const { data, error } = await supabase
     .from("evidence_items")
     .insert({
@@ -178,7 +246,6 @@ async function upsertEvidence(
     return null;
   }
 
-  // Generate and save embedding asynchronously
   try {
     const textForEmbedding = `${item.headline}. ${item.normalizedContent}`.slice(0, 2048);
     const embedding = await generateEmbedding(textForEmbedding, "RETRIEVAL_DOCUMENT");
@@ -188,7 +255,6 @@ async function upsertEvidence(
       .eq("id", data.id);
   } catch (embErr) {
     console.error("Embedding generation failed:", embErr);
-    // Non-fatal: item is still stored without embedding
   }
 
   return data.id;
@@ -202,9 +268,10 @@ Deno.serve(async (req: Request) => {
   try {
     const supabase = getAdminClient();
     const body = await req.json().catch(() => ({}));
-    const source: string = body.source ?? "all"; // 'all' | 'newsdata' | 'pib' | 'altnews' | 'factly' | 'acled'
+    const source: string = body.source ?? "all";
 
     const results: Record<string, number> = {};
+    const defaultTopicId = await getTopicIdBySlug(supabase, "government");
 
     // ── PIB RSS ──────────────────────────────────────────────
     if (source === "all" || source === "pib") {
@@ -215,12 +282,13 @@ Deno.serve(async (req: Request) => {
         for (const item of items.slice(0, 20)) {
           const id = await upsertEvidence(supabase, {
             sourceId: pibId,
+            topicId: defaultTopicId,
             headline: item.title,
             rawContent: item.description,
             normalizedContent: item.description,
             sourceUrl: item.link,
             publishedAt: item.pubDate,
-            isDirectRecord: true, // Lane 1: PIB is primary government source
+            isDirectRecord: true, // Lane 1
           });
           if (id) count++;
         }
@@ -228,21 +296,47 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // ── Alt News RSS ─────────────────────────────────────────
-    if (source === "all" || source === "altnews") {
-      const altId = await getSourceId(supabase, "Alt News");
-      if (altId) {
-        const items = await fetchRss("https://www.altnews.in/category/fact-check/feed/");
+    // ── PIB Telegram (@PIB_FactCheck) ────────────────────────
+    if (source === "all" || source === "pib_telegram") {
+      const pibId = (await getSourceId(supabase, "PIB Fact Check")) || (await getSourceId(supabase, "PIB"));
+      if (pibId) {
+        const items = await fetchPibTelegram();
         let count = 0;
-        for (const item of items.slice(0, 20)) {
+        for (const item of items.slice(0, 15)) {
+          const itemTopicId = item.topicSlug ? (await getTopicIdBySlug(supabase, item.topicSlug)) : defaultTopicId;
           const id = await upsertEvidence(supabase, {
-            sourceId: altId,
+            sourceId: pibId,
+            topicId: itemTopicId || defaultTopicId,
             headline: item.title,
             rawContent: item.description,
             normalizedContent: item.description,
             sourceUrl: item.link,
             publishedAt: item.pubDate,
-            isDirectRecord: false, // Lane 2: fact-checks require matching engine
+            isDirectRecord: true, // Lane 1: PIB Fact Check is authoritative
+          });
+          if (id) count++;
+        }
+        results["pib_telegram"] = count;
+      }
+    }
+
+    // ── Alt News RSS ─────────────────────────────────────────
+    if (source === "all" || source === "altnews") {
+      const altId = await getSourceId(supabase, "Alt News");
+      const altTopicId = (await getTopicIdBySlug(supabase, "protests")) || defaultTopicId;
+      if (altId) {
+        const items = await fetchRss("https://www.altnews.in/feed");
+        let count = 0;
+        for (const item of items.slice(0, 20)) {
+          const id = await upsertEvidence(supabase, {
+            sourceId: altId,
+            topicId: altTopicId,
+            headline: item.title,
+            rawContent: item.description,
+            normalizedContent: item.description,
+            sourceUrl: item.link,
+            publishedAt: item.pubDate,
+            isDirectRecord: false, // Lane 2
           });
           if (id) count++;
         }
@@ -253,12 +347,14 @@ Deno.serve(async (req: Request) => {
     // ── Factly RSS ───────────────────────────────────────────
     if (source === "all" || source === "factly") {
       const factlyId = await getSourceId(supabase, "Factly");
+      const factlyTopicId = (await getTopicIdBySlug(supabase, "elections")) || defaultTopicId;
       if (factlyId) {
-        const items = await fetchRss("https://factly.in/category/fact-check/feed/");
+        const items = await fetchRss("https://factly.in/feed");
         let count = 0;
         for (const item of items.slice(0, 20)) {
           const id = await upsertEvidence(supabase, {
             sourceId: factlyId,
+            topicId: factlyTopicId,
             headline: item.title,
             rawContent: item.description,
             normalizedContent: item.description,
@@ -282,13 +378,14 @@ Deno.serve(async (req: Request) => {
           const content = article.description ?? article.title;
           const id = await upsertEvidence(supabase, {
             sourceId: newsId,
+            topicId: defaultTopicId,
             headline: article.title,
             rawContent: content,
             normalizedContent: content,
             sourceUrl: article.link,
             imageUrl: article.image_url,
             publishedAt: article.pubDate,
-            isDirectRecord: false, // Lane 2: aggregator needs engine verification
+            isDirectRecord: false,
           });
           if (id) count++;
         }
@@ -299,6 +396,7 @@ Deno.serve(async (req: Request) => {
     // ── ACLED ────────────────────────────────────────────────
     if (source === "all" || source === "acled") {
       const acledId = await getSourceId(supabase, "ACLED");
+      const conflictTopicId = (await getTopicIdBySlug(supabase, "conflict")) || defaultTopicId;
       if (acledId) {
         const events = await fetchAcled();
         let count = 0;
@@ -306,12 +404,13 @@ Deno.serve(async (req: Request) => {
           const content = `${event.event_type} in ${event.location}, India on ${event.event_date}. ${event.notes}. Actors: ${event.actor1}${event.actor2 ? `, ${event.actor2}` : ""}. Fatalities: ${event.fatalities}.`;
           const id = await upsertEvidence(supabase, {
             sourceId: acledId,
+            topicId: conflictTopicId,
             headline: `${event.event_type}: ${event.location} (${event.event_date})`,
             rawContent: content,
             normalizedContent: content,
             sourceUrl: `https://acleddata.com/data-export-tool/?data_id=${event.data_id}`,
             publishedAt: event.event_date,
-            isDirectRecord: true, // Lane 1: ACLED is authoritative for conflict data
+            isDirectRecord: true, // Lane 1
           });
           if (id) count++;
         }

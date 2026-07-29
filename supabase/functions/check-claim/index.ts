@@ -4,10 +4,7 @@
 //
 // Accepts a user claim (text, image URL, or audio URL).
 // Runs all 7 stages: normalize → entity extract → SQL filter →
-// semantic re-rank → confidence score → fallback → synthesize.
-//
-// Trigger: HTTP POST from React frontend
-// Payload: { text?: string, media_url?: string, input_type?: 'text'|'image'|'audio' }
+// semantic re-rank → confidence score (with REFUTED tier) → fallback → synthesize.
 // ============================================================
 
 import { handleCors, corsHeaders } from "../_shared/cors.ts";
@@ -18,9 +15,10 @@ import {
   synthesizeVerdict,
   ExtractedEntities,
 } from "../_shared/groq.ts";
+import { RealityDefender } from "npm:@realitydefender/realitydefender";
 
 // ── Type definitions ─────────────────────────────────────────
-type ConfidenceTier = "CONFIRMED" | "DEVELOPING" | "UNVERIFIED" | "NO_RECORD";
+type ConfidenceTier = "CONFIRMED" | "REFUTED" | "DEVELOPING" | "UNVERIFIED" | "NO_RECORD";
 
 interface EvidenceMatch {
   id: string;
@@ -29,6 +27,8 @@ interface EvidenceMatch {
   source_url: string;
   published_at: string;
   source_id: string;
+  source_name?: string;
+  source_type?: string;
   similarity: number;
 }
 
@@ -41,13 +41,12 @@ async function normalizeInput(
   let claimText = text ?? "";
   let syntheticScore: number | null = null;
 
-  // For images/audio, use Groq Vision or Whisper (via Groq multimodal)
+  // For images/audio, use Groq Vision or Whisper
   if ((inputType === "image" || inputType === "audio") && mediaUrl) {
     const groqKey = Deno.env.get("GROQ_API_KEY");
     if (!groqKey) throw new Error("Missing GROQ_API_KEY for media processing");
 
     if (inputType === "image") {
-      // Groq Vision: extract text from image
       const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -74,9 +73,20 @@ async function normalizeInput(
       const data = await res.json();
       claimText = data.choices?.[0]?.message?.content ?? "";
     } else if (inputType === "audio") {
-      // Groq Whisper: transcribe audio
-      const audioRes = await fetch(mediaUrl);
-      const audioBlob = await audioRes.blob();
+      let audioBlob: Blob;
+      if (mediaUrl.startsWith("data:")) {
+        const parts = mediaUrl.split(",");
+        const mime = parts[0].match(/:(.*?);/)?.[1] || "audio/mp3";
+        const bstr = atob(parts[1]);
+        const u8arr = new Uint8Array(bstr.length);
+        for (let i = 0; i < bstr.length; i++) {
+          u8arr[i] = bstr.charCodeAt(i);
+        }
+        audioBlob = new Blob([u8arr], { type: mime });
+      } else {
+        const audioRes = await fetch(mediaUrl);
+        audioBlob = await audioRes.blob();
+      }
 
       const formData = new FormData();
       formData.append("file", audioBlob, "audio.mp3");
@@ -92,41 +102,20 @@ async function normalizeInput(
       claimText = data.text ?? "";
     }
 
-    // Reality Defender: synthetic media detection (50/month limit)
+    // Reality Defender check (if configured)
     const rdKey = Deno.env.get("REALITY_DEFENDER_KEY");
-    if (rdKey) {
+    if (rdKey && !mediaUrl.startsWith("data:")) {
       try {
-        const presignRes = await fetch(
-          "https://api.prd.realitydefender.xyz/api/files/aws-presigned",
-          {
-            method: "POST",
-            headers: {
-              "X-API-KEY": rdKey,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ fileName: `suspect.${inputType}` }),
-          },
-        );
-        if (presignRes.ok) {
-          const { requestId } = await presignRes.json();
-          // Poll for result (simplified — in production use webhook)
-          await new Promise((r) => setTimeout(r, 3000));
-          const resultRes = await fetch(
-            `https://api.prd.realitydefender.xyz/api/files/request/${requestId}`,
-            { headers: { "X-API-KEY": rdKey } },
-          );
-          if (resultRes.ok) {
-            const result = await resultRes.json();
-            syntheticScore = result.score ?? null;
-          }
-        }
+        const realityDefender = new RealityDefender({ apiKey: rdKey });
+        const result = await realityDefender.detect({ filePath: mediaUrl });
+        syntheticScore = result?.score ?? null;
       } catch (rdErr) {
-        console.warn("Reality Defender check failed (non-fatal):", rdErr);
+        console.warn("Reality Defender SDK check failed (falling back):", rdErr);
       }
     }
   }
 
-  if (!claimText.trim()) throw new Error("No claim text could be extracted");
+  if (!claimText.trim()) throw new Error("No text content could be parsed from the claim input");
   return { claimText, syntheticScore };
 }
 
@@ -143,25 +132,17 @@ async function sqlFilter(
     .eq("is_archived", false)
     .limit(50);
 
-  // Filter by location if extracted
   if (entities.location) {
     query = query.ilike("normalized_content", `%${entities.location}%`);
   }
-
-  // Filter by date range if extracted
   if (entities.date_range?.start) {
     query = query.gte("published_at", entities.date_range.start);
   }
   if (entities.date_range?.end) {
     query = query.lte("published_at", entities.date_range.end);
   }
-
-  // Filter by keyword (first most specific keyword)
   if (entities.keywords?.length) {
-    query = query.ilike(
-      "normalized_content",
-      `%${entities.keywords[0]}%`,
-    );
+    query = query.ilike("normalized_content", `%${entities.keywords[0]}%`);
   }
 
   const { data, error } = await query;
@@ -169,17 +150,22 @@ async function sqlFilter(
   return (data ?? []).map((d) => ({ ...d, similarity: 0 }));
 }
 
-// ── Stage 5: Confidence Scoring ──────────────────────────────
+// ── Stage 5: Refutation & Confidence Scoring ───────────────
 function scoreConfidence(
   matches: EvidenceMatch[],
   sourceMeta: Map<string, { name: string; type: string; authority_level: number }>,
 ): { tier: ConfidenceTier; score: number } {
   if (!matches.length) return { tier: "NO_RECORD", score: 0 };
 
-  // Calculate weighted score
   let weightedScore = 0;
   let hasIndependent = false;
   let hasGov = false;
+  let isRefuted = false;
+
+  const REFUTE_KEYWORDS = [
+    "fake", "false", "hoax", "busted", "debunked", "misleading",
+    "untrue", "bogus", "scam", "no such scheme", "baseless", "fabricated"
+  ];
 
   for (const match of matches) {
     const meta = sourceMeta.get(match.source_id);
@@ -187,16 +173,23 @@ function scoreConfidence(
     const similarity = match.similarity;
     weightedScore += (similarity * authority) / 10;
 
-    if (meta?.type === "INDEPENDENT") hasIndependent = true;
-    if (meta?.type === "GOV") hasGov = true;
+    const sourceTypeName = meta?.type || match.source_type || "";
+    if (sourceTypeName === "INDEPENDENT") hasIndependent = true;
+    if (sourceTypeName === "GOV") hasGov = true;
+
+    // Check if matched evidence explicitly refutes/debunks the claim
+    const textToCheck = `${match.headline} ${match.normalized_content}`.toLowerCase();
+    if (similarity > 0.60 && REFUTE_KEYWORDS.some(k => textToCheck.includes(k))) {
+      isRefuted = true;
+    }
   }
 
-  // Neutrality rule: Gov-only claims require independent corroboration
-  // for CONFIRMED tier (enforces Alt News / Factly agreement requirement)
   const avgScore = weightedScore / matches.length;
 
   let tier: ConfidenceTier;
-  if (avgScore >= 0.75 && matches.length >= 2 && (hasIndependent || !hasGov)) {
+  if (isRefuted) {
+    tier = "REFUTED";
+  } else if (avgScore >= 0.75 && matches.length >= 2 && (hasIndependent || !hasGov)) {
     tier = "CONFIRMED";
   } else if (avgScore >= 0.55 && matches.length >= 1) {
     tier = "DEVELOPING";
@@ -224,16 +217,13 @@ async function webGroundingFallback(claimText: string): Promise<string> {
           {
             parts: [
               {
-                text: `Fact-check this claim using web search. Provide only factual information from credible sources. Claim: "${claimText}"`,
+                text: `Fact-check this claim using web search. Provide factual evidence from verified news outlets. Claim: "${claimText}"`,
               },
             ],
           },
         ],
         tools: [{ google_search: {} }],
-        generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens: 512,
-        },
+        generationConfig: { temperature: 0.1, maxOutputTokens: 512 },
       }),
     },
   );
@@ -309,15 +299,13 @@ Deno.serve(async (req: Request) => {
 
     // ── Stage 4: Semantic Re-ranking ─────────────────────────
     let semanticMatches: EvidenceMatch[] = [];
-    if (sqlMatches.length > 0 || true) {
-      // Always run semantic search for best results
+    try {
       const queryEmbedding = await generateEmbedding(claimText, "RETRIEVAL_QUERY");
-
       const { data: vectorMatches, error: vecErr } = await supabase.rpc(
         "match_evidence",
         {
           query_embedding: queryEmbedding,
-          match_threshold: 0.60,
+          match_threshold: 0.55,
           match_count: 10,
         },
       );
@@ -325,9 +313,11 @@ Deno.serve(async (req: Request) => {
       if (!vecErr && vectorMatches) {
         semanticMatches = vectorMatches as EvidenceMatch[];
       }
+    } catch (embErr) {
+      console.warn("Semantic vector search skipped (embedding failed):", embErr);
     }
 
-    // Merge and deduplicate matches, preferring higher similarity
+    // Merge & deduplicate matches
     const matchMap = new Map<string, EvidenceMatch>();
     for (const m of [...sqlMatches, ...semanticMatches]) {
       const existing = matchMap.get(m.id);
@@ -339,7 +329,7 @@ Deno.serve(async (req: Request) => {
       .sort((a, b) => b.similarity - a.similarity)
       .slice(0, 10);
 
-    // Fetch source metadata for confidence scoring
+    // Fetch source metadata
     const sourceIds = [...new Set(allMatches.map((m) => m.source_id))];
     const { data: sources } = await supabase
       .from("sources")
@@ -369,7 +359,7 @@ Deno.serve(async (req: Request) => {
 
     // ── Stage 7: Constrained Synthesis ──────────────────────
     const evidenceForSynthesis = allMatches.slice(0, 5).map((m) => ({
-      source: sourceMeta.get(m.source_id)?.name ?? "Unknown",
+      source: m.source_name || sourceMeta.get(m.source_id)?.name || "Verified Source",
       url: m.source_url,
       content: m.normalized_content,
       publishedAt: m.published_at,
@@ -391,15 +381,14 @@ Deno.serve(async (req: Request) => {
       usedWebGrounding,
     });
 
-    // Prepare source citations
     const verdictSources = allMatches.slice(0, 5).map((m) => ({
-      name: sourceMeta.get(m.source_id)?.name ?? "Unknown",
+      name: m.source_name || sourceMeta.get(m.source_id)?.name || "Verified Source",
       url: m.source_url,
       excerpt: m.normalized_content.slice(0, 200),
       similarity: m.similarity,
     }));
 
-    // Save matches to evidence_matches table
+    // Save matches
     if (allMatches.length > 0) {
       await supabase.from("evidence_matches").upsert(
         allMatches.map((m) => ({
@@ -411,7 +400,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Final update to claim_checks
+    // Update claim check record
     await supabase
       .from("claim_checks")
       .update({
@@ -444,7 +433,6 @@ Deno.serve(async (req: Request) => {
   } catch (err) {
     console.error("check-claim error:", err);
 
-    // Mark claim as errored
     if (claimCheckId) {
       await getAdminClient()
         .from("claim_checks")

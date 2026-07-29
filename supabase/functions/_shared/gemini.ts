@@ -11,7 +11,7 @@ let ai: GoogleGenAI | null = null;
 function getAI(): GoogleGenAI {
   if (!ai) {
     const apiKey = Deno.env.get("GEMINI_API_KEY");
-    if (!apiKey) throw new Error("Missing GEMINI_API_KEY");
+    if (!apiKey) throw new Error("Missing GEMINI_API_KEY environment variable");
     ai = new GoogleGenAI({ apiKey });
   }
   return ai;
@@ -26,18 +26,23 @@ export async function generateEmbedding(
   taskType: "RETRIEVAL_DOCUMENT" | "RETRIEVAL_QUERY" | "SEMANTIC_SIMILARITY" =
     "RETRIEVAL_DOCUMENT",
 ): Promise<number[]> {
-  const response = await getAI().models.embedContent({
-    model: "gemini-embedding-001",
-    contents: text,
-    config: {
-      outputDimensionality: 768, // Must match vector(768) in pgvector schema
-      taskType,
-    },
-  });
+  try {
+    const response = await getAI().models.embedContent({
+      model: "gemini-embedding-001",
+      contents: text,
+      config: {
+        outputDimensionality: 768, // Must match vector(768) in pgvector schema
+        taskType,
+      },
+    });
 
-  if (!response.embedding?.values) {
-    throw new Error("Gemini returned no embedding values");
+    if (!response || !response.embedding || !response.embedding.values) {
+      throw new Error("Gemini returned invalid or empty embedding payload");
+    }
+
+    return response.embedding.values;
+  } catch (err) {
+    console.error("Embedding generation error:", (err as Error).message);
+    throw err;
   }
-
-  return response.embedding.values;
 }
