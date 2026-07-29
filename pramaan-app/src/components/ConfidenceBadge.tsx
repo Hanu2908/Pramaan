@@ -16,6 +16,7 @@ const CONFIG = {
   unverified: { label: 'Unverified',     className: 'badge-unverified', icon: AlertTriangle, dot: false, dotClass: '' },
   norecord:   { label: 'No Record Found',className: 'badge-no-record',  icon: HelpCircle,   dot: false, dotClass: '' },
   'no-record':{ label: 'No Record Found',className: 'badge-no-record',  icon: HelpCircle,   dot: false, dotClass: '' },
+  no_record:  { label: 'No Record Found',className: 'badge-no-record',  icon: HelpCircle,   dot: false, dotClass: '' },
 };
 
 export function ConfidenceBadge({ tier, size = 'md', showIcon = true, animate = false }: ConfidenceBadgeProps) {

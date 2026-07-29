@@ -1,5 +1,5 @@
 // ─── Pramaan Mock Data ───────────────────────────────────────────
-export type ConfidenceTier = 'confirmed' | 'refuted' | 'developing' | 'unverified' | 'norecord';
+export type ConfidenceTier = 'confirmed' | 'refuted' | 'developing' | 'unverified' | 'norecord' | 'no_record' | 'no-record';
 export type TopicCategory  = 'all' | 'government' | 'protests' | 'conflict' | 'health' | 'deepfake';
 export type LaneType       = 'direct' | 'verified';
 export type SourceName     = 'PIB RSS' | 'Alt News' | 'Factly' | 'ACLED' | 'NewsData.io' | 'Gemini Grounding' | 'Reality Defender';

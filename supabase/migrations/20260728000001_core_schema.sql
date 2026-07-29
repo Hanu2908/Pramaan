@@ -157,3 +157,22 @@ create table public.evidence_matches (
 
 create index idx_matches_claim    on public.evidence_matches (claim_check_id);
 create index idx_matches_evidence on public.evidence_matches (evidence_item_id);
+
+-- ============================================================
+-- ROW LEVEL SECURITY (RLS) POLICIES
+-- Protect tables against unauthorized mutation via anon key
+-- ============================================================
+alter table public.sources enable row level security;
+alter table public.topics enable row level security;
+alter table public.evidence_items enable row level security;
+alter table public.claim_checks enable row level security;
+alter table public.evidence_matches enable row level security;
+
+-- Read policies for public/anon user
+create policy "Allow public select on sources" on public.sources for select using (true);
+create policy "Allow public select on topics" on public.topics for select using (true);
+create policy "Allow public select on evidence_items" on public.evidence_items for select using (is_archived = false);
+create policy "Allow public select on claim_checks" on public.claim_checks for select using (true);
+create policy "Allow public insert on claim_checks" on public.claim_checks for insert with check (true);
+create policy "Allow public select on evidence_matches" on public.evidence_matches for select using (true);
+create policy "Allow public insert on evidence_matches" on public.evidence_matches for insert with check (true);
