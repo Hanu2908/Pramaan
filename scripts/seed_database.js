@@ -83,6 +83,22 @@ const mockRecords = [
     date: new Date(Date.now() - 13000000).toISOString()
   },
 
+  // International Conflict
+  {
+    sourceName: 'Alt News', topicSlug: 'international', isDirectRecord: false,
+    headline: 'Video game footage passed off as real military strike in international conflict',
+    content: 'A widely shared video claiming to show an air defense system intercepting missiles in a conflict zone is actually footage from the video game ARMA 3. The developers have previously warned about their simulation being misused as real combat footage.',
+    url: 'https://www.altnews.in/arma3-video-game-footage-military-strike/',
+    date: new Date(Date.now() - 4000000).toISOString()
+  },
+  {
+    sourceName: 'NewsData.io', topicSlug: 'international', isDirectRecord: true,
+    headline: 'UN Security Council votes on new resolution regarding border security',
+    content: 'The UN Security Council passed a resolution demanding immediate cessation of hostilities in border regions. The resolution was adopted with 14 votes in favor and 1 abstention.',
+    url: 'https://newsdata.io/un-ceasefire-resolution',
+    date: new Date(Date.now() - 8000000).toISOString()
+  },
+
   // Deepfake
   {
     sourceName: 'Alt News', topicSlug: 'deepfake', isDirectRecord: false,

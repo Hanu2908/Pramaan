@@ -17,8 +17,8 @@ create extension if not exists pg_net with schema extensions;
 select cron.schedule(
   'pramaan-ingest-all-4h',
   '0 */4 * * *',
-  $$
-    do $$
+  $cron$
+    do $body$
     declare
       v_project_url text;
       v_service_key text;
@@ -43,8 +43,8 @@ select cron.schedule(
           body := '{"source":"all"}'::jsonb
         );
       end if;
-    end $$;
-  $$
+    end $body$;
+  $cron$
 );
 
 -- ============================================================
@@ -53,8 +53,8 @@ select cron.schedule(
 select cron.schedule(
   'pramaan-ingest-acled-24h',
   '0 2 * * *',
-  $$
-    do $$
+  $cron$
+    do $body$
     declare
       v_project_url text;
       v_service_key text;
@@ -79,6 +79,6 @@ select cron.schedule(
           body := '{"source":"acled"}'::jsonb
         );
       end if;
-    end $$;
-  $$
+    end $body$;
+  $cron$
 );
