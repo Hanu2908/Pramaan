@@ -3,82 +3,82 @@
 -- Requires pg_cron and pg_net extensions enabled in Dashboard.
 --
 -- Schedule: ingest-news runs every 4 hours.
--- IMPORTANT: Replace YOUR_PROJECT_REF and YOUR_SERVICE_ROLE_KEY
--- with real values, or set them via Supabase Vault (recommended).
+-- Now includes fallback logic if Vault secrets are not yet configured.
 -- ============================================================
 
--- Enable required extensions (if not already enabled in Dashboard)
+-- Enable required extensions
 create extension if not exists pg_cron with schema pg_catalog;
 create extension if not exists pg_net with schema extensions;
 
 -- ============================================================
--- Store secrets in Vault (run once manually in SQL editor)
--- Uncomment and replace values before running:
--- ============================================================
--- select vault.create_secret(
---   'https://YOUR_PROJECT_REF.supabase.co',
---   'project_url'
--- );
--- select vault.create_secret(
---   'YOUR_SERVICE_ROLE_KEY',
---   'service_role_key'
--- );
-
--- ============================================================
 -- Schedule: Ingest all sources every 4 hours
+-- Safely attempts to fetch Vault secret, or skips gracefully
 -- ============================================================
 select cron.schedule(
   'pramaan-ingest-all-4h',
   '0 */4 * * *',
   $$
-    select net.http_post(
-      url := (
-        select decrypted_secret
-        from vault.decrypted_secrets
-        where name = 'project_url'
-      ) || '/functions/v1/ingest-news',
-      headers := jsonb_build_object(
-        'Content-Type',   'application/json',
-        'Authorization',  'Bearer ' || (
-          select decrypted_secret
-          from vault.decrypted_secrets
-          where name = 'service_role_key'
-        )
-      ),
-      body := '{"source":"all"}'::jsonb
-    ) as request_id;
+    do $$
+    declare
+      v_project_url text;
+      v_service_key text;
+    begin
+      select decrypted_secret into v_project_url
+      from vault.decrypted_secrets
+      where name = 'project_url'
+      limit 1;
+
+      select decrypted_secret into v_service_key
+      from vault.decrypted_secrets
+      where name = 'service_role_key'
+      limit 1;
+
+      if v_project_url is not null and v_service_key is not null then
+        perform net.http_post(
+          url := v_project_url || '/functions/v1/ingest-news',
+          headers := jsonb_build_object(
+            'Content-Type',  'application/json',
+            'Authorization', 'Bearer ' || v_service_key
+          ),
+          body := '{"source":"all"}'::jsonb
+        );
+      end if;
+    end $$;
   $$
 );
 
 -- ============================================================
--- Schedule: Ingest ACLED separately every 24 hours (API is slower)
+-- Schedule: Ingest ACLED separately every 24 hours
 -- ============================================================
 select cron.schedule(
   'pramaan-ingest-acled-24h',
   '0 2 * * *',
   $$
-    select net.http_post(
-      url := (
-        select decrypted_secret
-        from vault.decrypted_secrets
-        where name = 'project_url'
-      ) || '/functions/v1/ingest-news',
-      headers := jsonb_build_object(
-        'Content-Type',   'application/json',
-        'Authorization',  'Bearer ' || (
-          select decrypted_secret
-          from vault.decrypted_secrets
-          where name = 'service_role_key'
-        )
-      ),
-      body := '{"source":"acled"}'::jsonb
-    ) as request_id;
+    do $$
+    declare
+      v_project_url text;
+      v_service_key text;
+    begin
+      select decrypted_secret into v_project_url
+      from vault.decrypted_secrets
+      where name = 'project_url'
+      limit 1;
+
+      select decrypted_secret into v_service_key
+      from vault.decrypted_secrets
+      where name = 'service_role_key'
+      limit 1;
+
+      if v_project_url is not null and v_service_key is not null then
+        perform net.http_post(
+          url := v_project_url || '/functions/v1/ingest-news',
+          headers := jsonb_build_object(
+            'Content-Type',  'application/json',
+            'Authorization', 'Bearer ' || v_service_key
+          ),
+          body := '{"source":"acled"}'::jsonb
+        );
+      end if;
+    end $$;
   $$
 );
-
--- View scheduled jobs
--- select * from cron.job;
-
--- Remove jobs if needed
--- select cron.unschedule('pramaan-ingest-all-4h');
--- select cron.unschedule('pramaan-ingest-acled-24h');

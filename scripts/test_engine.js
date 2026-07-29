@@ -1,5 +1,11 @@
-const SUPABASE_URL = "http://127.0.0.1:54321/functions/v1/check-claim";
-const ANON_KEY = process.env.SUPABASE_ANON_KEY || "your_anon_key";
+const dotenv = require('dotenv');
+const path = require('path');
+
+dotenv.config({ path: path.join(__dirname, '../pramaan-app/.env.local') });
+dotenv.config({ path: path.join(__dirname, '../.env') });
+
+const SUPABASE_URL = "https://isqdqjubveytsvzyusyq.supabase.co/functions/v1/check-claim";
+const ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlzcWRxanVidmV5dHN2enl1c3lxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUxOTc4MzAsImV4cCI6MjEwMDc3MzgzMH0.NyD06h8j84FiWl00Cn0RAiIWnGEZzWt0N7k_iOPgK7k";
 
 const testCases = [
   "WhatsApp message claims the Ministry of Education is distributing free laptops to all students.",
@@ -8,12 +14,12 @@ const testCases = [
 ];
 
 async function runTests() {
-  console.log("Starting End-to-End Edge Function Tests...\n");
+  console.log("Starting End-to-End Live Remote Edge Function Tests...\n");
   
   for (let i = 0; i < testCases.length; i++) {
     const claim = testCases[i];
     console.log(`Test ${i + 1}: "${claim}"`);
-    console.log(`Status: Calling Edge Function...`);
+    console.log(`Status: Calling Live Edge Function at ${SUPABASE_URL}...`);
     
     try {
       const start = Date.now();
