@@ -4,7 +4,11 @@
 //
 // Accepts a user claim (text, image URL, or audio URL).
 // Runs all 7 stages: normalize → entity extract → SQL filter →
-// semantic re-rank → confidence score (with REFUTED tier) → fallback → synthesize.
+// semantic re-rank → confidence score → fallback → synthesize.
+//
+// Task 0: Reality Defender integration is server-side only.
+// Task 2: Image path runs Groq Vision OCR + Reality Defender deepfake analysis in parallel.
+// Task 3: Audio path runs Groq Whisper transcription only.
 // ============================================================
 
 import { handleCors, corsHeaders } from "../_shared/cors.ts";
@@ -15,10 +19,15 @@ import {
   synthesizeVerdict,
   ExtractedEntities,
 } from "../_shared/groq.ts";
-import { RealityDefender } from "npm:@realitydefender/realitydefender";
 
 // ── Type definitions ─────────────────────────────────────────
 type ConfidenceTier = "CONFIRMED" | "REFUTED" | "DEVELOPING" | "UNVERIFIED" | "NO_RECORD";
+
+interface DeepfakeAnalysis {
+  is_synthetic: boolean;
+  score: number;
+  status: "FLAGGED_SYNTHETIC" | "AUTHENTIC_MEDIA";
+}
 
 interface EvidenceMatch {
   id: string;
@@ -32,91 +41,156 @@ interface EvidenceMatch {
   similarity: number;
 }
 
-// ── Stage 1: Input Normalization ─────────────────────────────
+// ── Server-Side Reality Defender Deepfake Analyzer ─────────
+async function runRealityDefender(mediaUrl: string): Promise<DeepfakeAnalysis | null> {
+  const rdKey = Deno.env.get("REALITY_DEFENDER_API_KEY") || Deno.env.get("REALITY_DEFENDER_KEY");
+  if (!rdKey || !mediaUrl || mediaUrl.startsWith("data:")) return null;
+
+  try {
+    const res = await fetch("https://api.realitydefender.com/v1/detect", {
+      method: "POST",
+      headers: {
+        "x-api-key": rdKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ media_url: mediaUrl }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      const score = Number(data.score ?? data.synthetic_score ?? 0.0);
+      const isSynthetic = score >= 0.70;
+      return {
+        is_synthetic: isSynthetic,
+        score,
+        status: isSynthetic ? "FLAGGED_SYNTHETIC" : "AUTHENTIC_MEDIA",
+      };
+    }
+  } catch (err) {
+    console.warn("Reality Defender API check error:", err);
+  }
+
+  return null;
+}
+
+// ── Stage 1: Input Normalization & OCR / Whisper ─────────────
 async function normalizeInput(
   text: string | null,
   mediaUrl: string | null,
   inputType: "text" | "image" | "audio",
-): Promise<{ claimText: string; syntheticScore: number | null }> {
+): Promise<{ claimText: string; deepfakeAnalysis: DeepfakeAnalysis | null }> {
   let claimText = text ?? "";
-  let syntheticScore: number | null = null;
+  let deepfakeAnalysis: DeepfakeAnalysis | null = null;
 
-  // For images/audio, use Groq Vision or Whisper
-  if ((inputType === "image" || inputType === "audio") && mediaUrl) {
-    const groqKey = Deno.env.get("GROQ_API_KEY");
-    if (!groqKey) throw new Error("Missing GROQ_API_KEY for media processing");
+  const groqKey = Deno.env.get("GROQ_API_KEY");
 
-    if (inputType === "image") {
-      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${groqKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "meta-llama/llama-4-scout-17b-16e-instruct",
-          messages: [
-            {
-              role: "user",
-              content: [
-                {
-                  type: "text",
-                  text: "Extract all text from this image. Return ONLY the extracted text, nothing else.",
-                },
-                { type: "image_url", image_url: { url: mediaUrl } },
-              ],
-            },
-          ],
-          max_tokens: 1024,
-        }),
-      });
-      const data = await res.json();
-      claimText = data.choices?.[0]?.message?.content ?? "";
-    } else if (inputType === "audio") {
-      let audioBlob: Blob;
-      if (mediaUrl.startsWith("data:")) {
-        const parts = mediaUrl.split(",");
-        const mime = parts[0].match(/:(.*?);/)?.[1] || "audio/mp3";
-        const bstr = atob(parts[1]);
-        const u8arr = new Uint8Array(bstr.length);
-        for (let i = 0; i < bstr.length; i++) {
-          u8arr[i] = bstr.charCodeAt(i);
-        }
-        audioBlob = new Blob([u8arr], { type: mime });
-      } else {
-        const audioRes = await fetch(mediaUrl);
-        audioBlob = await audioRes.blob();
+  if (inputType === "image" && mediaUrl) {
+    if (!groqKey) throw new Error("Missing GROQ_API_KEY for image OCR");
+
+    // Task 2: Image path — run Groq Vision OCR + Reality Defender deepfake analysis in parallel
+    const ocrPromise = fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${groqKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "llama-3.2-11b-vision-preview",
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Extract all text from this image accurately. Return ONLY the extracted text, nothing else.",
+              },
+              { type: "image_url", image_url: { url: mediaUrl } },
+            ],
+          },
+        ],
+        max_tokens: 1024,
+      }),
+    }).then(async (res) => {
+      if (!res.ok) {
+        // Fallback to meta-llama model if 11b-vision endpoint differs
+        const fallbackRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${groqKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "meta-llama/llama-4-scout-17b-16e-instruct",
+            messages: [
+              {
+                role: "user",
+                content: [
+                  { type: "text", text: "Extract all text from this image." },
+                  { type: "image_url", image_url: { url: mediaUrl } },
+                ],
+              },
+            ],
+            max_tokens: 1024,
+          }),
+        });
+        const fbData = await fallbackRes.json();
+        return fbData.choices?.[0]?.message?.content ?? "";
       }
-
-      const formData = new FormData();
-      formData.append("file", audioBlob, "audio.mp3");
-      formData.append("model", "whisper-large-v3-turbo");
-      formData.append("language", "en");
-
-      const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${groqKey}` },
-        body: formData,
-      });
       const data = await res.json();
-      claimText = data.text ?? "";
+      return data.choices?.[0]?.message?.content ?? "";
+    }).catch((e) => {
+      console.warn("Groq Vision OCR error:", e);
+      return "";
+    });
+
+    const rdPromise = runRealityDefender(mediaUrl);
+
+    // Await both OCR text and deepfake analysis in parallel
+    const [extractedOcrText, rdResult] = await Promise.all([ocrPromise, rdPromise]);
+    claimText = (extractedOcrText && extractedOcrText.trim()) || (text && text.trim()) || "Visual media claim submitted for verification";
+    deepfakeAnalysis = rdResult;
+
+  } else if (inputType === "audio" && mediaUrl) {
+    if (!groqKey) throw new Error("Missing GROQ_API_KEY for audio transcription");
+
+    // Task 3: Audio path — transcribe via Groq Whisper Turbo. No deepfake check.
+    let audioBlob: Blob;
+    if (mediaUrl.startsWith("data:")) {
+      const parts = mediaUrl.split(",");
+      const mime = parts[0].match(/:(.*?);/)?.[1] || "audio/mp3";
+      const bstr = atob(parts[1]);
+      const u8arr = new Uint8Array(bstr.length);
+      for (let i = 0; i < bstr.length; i++) {
+        u8arr[i] = bstr.charCodeAt(i);
+      }
+      audioBlob = new Blob([u8arr], { type: mime });
+    } else {
+      const audioRes = await fetch(mediaUrl);
+      audioBlob = await audioRes.blob();
     }
 
-    // Reality Defender check (if configured)
-    const rdKey = Deno.env.get("REALITY_DEFENDER_KEY");
-    if (rdKey && !mediaUrl.startsWith("data:")) {
-      try {
-        const realityDefender = new RealityDefender({ apiKey: rdKey });
-        const result = await realityDefender.detect({ filePath: mediaUrl });
-        syntheticScore = result?.score ?? null;
-      } catch (rdErr) {
-        console.warn("Reality Defender SDK check failed (falling back):", rdErr);
-      }
+    const formData = new FormData();
+    formData.append("file", audioBlob, "audio.mp3");
+    formData.append("model", "whisper-large-v3-turbo");
+    formData.append("language", "en");
+
+    const whisperRes = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${groqKey}` },
+      body: formData,
+    });
+
+    if (whisperRes.ok) {
+      const whisperData = await whisperRes.json();
+      claimText = whisperData.text ?? claimText;
     }
   }
 
-  if (!claimText.trim()) throw new Error("No text content could be parsed from the claim input");
-  return { claimText, syntheticScore };
+  if (!claimText.trim()) {
+    throw new Error(`No text could be extracted or transcribed from the provided ${inputType}.`);
+  }
+
+  return { claimText, deepfakeAnalysis };
 }
 
 // ── Stage 3: Structured SQL Filter ──────────────────────────
@@ -150,10 +224,10 @@ async function sqlFilter(
   return (data ?? []).map((d) => ({ ...d, similarity: 0 }));
 }
 
-// ── Stage 5: Refutation & Confidence Scoring ───────────────
+// ── Stage 5: Confidence Scoring ─────────────────────────────
 function scoreConfidence(
   matches: EvidenceMatch[],
-  sourceMeta: Map<string, { name: string; type: string; authority_level: number }>,
+  sourceMeta: Map<string, { name: string; type: string; authority_level: number; authority_weight: number }>,
 ): { tier: ConfidenceTier; score: number } {
   if (!matches.length) return { tier: "NO_RECORD", score: 0 };
 
@@ -169,15 +243,14 @@ function scoreConfidence(
 
   for (const match of matches) {
     const meta = sourceMeta.get(match.source_id);
-    const authority = meta?.authority_level ?? 5;
+    const weight = meta?.authority_weight ?? 0.5;
     const similarity = match.similarity;
-    weightedScore += (similarity * authority) / 10;
+    weightedScore += similarity * weight;
 
     const sourceTypeName = meta?.type || match.source_type || "";
     if (sourceTypeName === "INDEPENDENT") hasIndependent = true;
     if (sourceTypeName === "GOV") hasGov = true;
 
-    // Check if matched evidence explicitly refutes/debunks the claim
     const textToCheck = `${match.headline} ${match.normalized_content}`.toLowerCase();
     if (similarity > 0.60 && REFUTE_KEYWORDS.some(k => textToCheck.includes(k))) {
       isRefuted = true;
@@ -279,8 +352,8 @@ Deno.serve(async (req: Request) => {
     if (createErr || !claimRecord) throw createErr ?? new Error("Failed to create claim record");
     claimCheckId = claimRecord.id;
 
-    // ── Stage 1: Normalize ───────────────────────────────────
-    const { claimText, syntheticScore } = await normalizeInput(
+    // ── Stage 1: Normalize & Extract OCR / Whisper ───────────
+    const { claimText, deepfakeAnalysis } = await normalizeInput(
       text,
       media_url,
       input_type as "text" | "image" | "audio",
@@ -290,8 +363,8 @@ Deno.serve(async (req: Request) => {
       .from("claim_checks")
       .update({
         normalized_text: claimText,
-        synthetic_score: syntheticScore,
-        is_synthetic: syntheticScore !== null ? syntheticScore > 0.7 : null,
+        synthetic_score: deepfakeAnalysis?.score ?? null,
+        is_synthetic: deepfakeAnalysis?.is_synthetic ?? null,
       })
       .eq("id", claimCheckId);
 
@@ -341,7 +414,7 @@ Deno.serve(async (req: Request) => {
     const sourceIds = [...new Set(allMatches.map((m) => m.source_id))];
     const { data: sources } = await supabase
       .from("sources")
-      .select("id, name, type, authority_level")
+      .select("id, name, type, authority_level, authority_weight")
       .in("id", sourceIds);
 
     const sourceMeta = new Map(
@@ -426,11 +499,14 @@ Deno.serve(async (req: Request) => {
     return new Response(
       JSON.stringify({
         id: claimCheckId,
+        claim_text: claimText,
         tier,
         score,
         verdict,
         sources: verdictSources,
-        synthetic_score: syntheticScore,
+        entities,
+        deepfake_analysis: deepfakeAnalysis,
+        synthetic_score: deepfakeAnalysis?.score ?? null,
         used_web_grounding: usedWebGrounding,
       }),
       {

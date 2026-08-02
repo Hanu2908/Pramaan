@@ -36,11 +36,12 @@ export async function generateEmbedding(
       },
     });
 
-    if (!response || !response.embedding || !response.embedding.values) {
-      throw new Error("Gemini returned invalid or empty embedding payload");
+    const values = response.embeddings?.[0]?.values ?? (response as any).embedding?.values;
+    if (!values || !Array.isArray(values) || values.length === 0) {
+      throw new Error(`Gemini returned invalid embedding payload: ${JSON.stringify(response)}`);
     }
 
-    return response.embedding.values;
+    return values;
   } catch (err) {
     console.error("Embedding generation error:", (err as Error).message);
     throw err;

@@ -1,8 +1,32 @@
 // ─── Pramaan Mock Data ───────────────────────────────────────────
 export type ConfidenceTier = 'confirmed' | 'refuted' | 'developing' | 'unverified' | 'norecord' | 'no_record' | 'no-record';
-export type TopicCategory  = 'all' | 'government' | 'protests' | 'conflict' | 'health' | 'deepfake';
+export type TopicCategory  = 'all' | 'government' | 'protests' | 'conflict' | 'health' | 'deepfake' | 'other';
 export type LaneType       = 'direct' | 'verified';
-export type SourceName     = 'PIB RSS' | 'Alt News' | 'Factly' | 'ACLED' | 'NewsData.io' | 'Gemini Grounding' | 'Reality Defender';
+export type SourceName     =
+  | 'PIB'
+  | 'PIB Fact Check'
+  | 'PIB RSS'
+  | 'Alt News'
+  | 'Factly'
+  | 'ACLED'
+  | 'NewsData.io'
+  | 'Indian Express'
+  | 'The Hindu'
+  | 'Zee News'
+  | 'TV9 Hindi'
+  | 'Vishvas News'
+  | 'GDELT'
+  | 'Gemini Grounding'
+  | 'Reality Defender'
+  | 'Unknown source';
+
+export interface SourceDetail {
+  name: string;
+  authorityWeight: number;
+  url?: string;
+  publishedAt?: string;
+  similarity?: number;
+}
 
 export interface NewsItem {
   id: string;
@@ -16,6 +40,16 @@ export interface NewsItem {
   location?: string;
   isSynthetic?: boolean;
   syntheticScore?: number;
+  storyId?: string;
+  clusterCount?: number;
+  sourceDetails?: SourceDetail[];
+  entities?: {
+    location?: string;
+    date?: string;
+    actors?: string[];
+    topic?: string;
+    keywords?: string[];
+  };
 }
 
 export interface EvidenceSnippet { source: SourceName; snippet: string; }
@@ -24,7 +58,13 @@ export interface CheckResult {
   summary: string;
   evidence: EvidenceSnippet[];
   isFallback: boolean;
-  entities: { location?: string; date?: string; actors?: string[]; topic?: string; };
+  entities: { location?: string; date?: string; actors?: string[]; topic?: string; [key: string]: any };
+  claimText?: string;
+  deepfakeAnalysis?: {
+    is_synthetic: boolean;
+    score: number;
+    status: string;
+  } | null;
 }
 
 export const MOCK_NEWS: NewsItem[] = [

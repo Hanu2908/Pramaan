@@ -1,16 +1,20 @@
 // ============================================================
 // functions/ingest-news/index.ts
-// Supabase Edge Function — Scheduled Ingestion
+// Supabase Edge Function — Backward-Compatible Ingestion Wrapper
 //
-// Pulls from NewsData.io, PIB RSS, PIB Telegram FactCheck (@PIB_FactCheck),
-// Alt News RSS, Factly RSS, and ACLED API.
-// Normalizes content, routes to Lane 1 or 2, assigns topic_id,
-// and generates Gemini embeddings.
+// LEGACY WRAPPER: This function is preserved for backward
+// compatibility with existing manual invocations and integrations.
+// It delegates to the ingestion_queue (Task 3) instead of
+// inserting directly into evidence_items.
+//
+// New per-source functions: ingest-rss, ingest-telegram,
+// ingest-acled, ingest-newsdata. Queue is drained by drain-queue.
 // ============================================================
 
 import { handleCors, corsHeaders } from "../_shared/cors.ts";
 import { getAdminClient } from "../_shared/supabaseClient.ts";
-import { generateEmbedding } from "../_shared/gemini.ts";
+
+// ── Source Fetchers (kept inline for backward compat) ────────
 
 interface RssItem {
   title: string;
@@ -33,7 +37,7 @@ async function fetchRss(url: string): Promise<RssItem[]> {
   for (const match of itemMatches) {
     const block = match[1];
     const get = (tag: string) =>
-      block.match(new RegExp(`<${tag}[^>]*><!\\[CDATA\\[([\\s\\S]*?)\\]\\]><\\/${tag}>`))?.[1]
+      block.match(new RegExp(`<${tag}[^>]*><!\\\[CDATA\\\[([\\s\\S]*?)\\\]\\\]><\\/${tag}>`))?.[1]
       ?? block.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`))?.[1]?.trim()
       ?? "";
 
@@ -47,7 +51,6 @@ async function fetchRss(url: string): Promise<RssItem[]> {
   return items;
 }
 
-// ── PIB Telegram (@PIB_FactCheck) Feed Parser ──────────────
 async function fetchPibTelegram(): Promise<RssItem[]> {
   const url = "https://t.me/s/PIB_FactCheck";
   const res = await fetch(url, {
@@ -62,8 +65,8 @@ async function fetchPibTelegram(): Promise<RssItem[]> {
   let count = 0;
   for (const match of messageBlocks) {
     count++;
-    let rawText = match[1];
-    let text = rawText
+    const rawText = match[1];
+    const text = rawText
       .replace(/<br\s*\/?>/gi, "\n")
       .replace(/<[^>]+>/g, "")
       .replace(/&quot;/g, '"')
@@ -76,7 +79,6 @@ async function fetchPibTelegram(): Promise<RssItem[]> {
       const lines = text.split("\n").filter((l) => l.trim().length > 0);
       const headline = lines[0].slice(0, 120);
 
-      // Infer topic slug based on keywords
       const lower = text.toLowerCase();
       let topicSlug = "government";
       if (lower.includes("deepfake") || lower.includes("ai-generated") || lower.includes("synthetic")) {
@@ -103,7 +105,6 @@ async function fetchPibTelegram(): Promise<RssItem[]> {
   return items;
 }
 
-// ── NewsData.io ──────────────────────────────────────────────
 interface NewsDataArticle {
   title: string;
   link: string;
@@ -129,7 +130,6 @@ async function fetchNewsData(): Promise<NewsDataArticle[]> {
   return (data.results ?? []) as NewsDataArticle[];
 }
 
-// ── ACLED ────────────────────────────────────────────────────
 interface AcledEvent {
   data_id: number;
   event_date: string;
@@ -171,93 +171,22 @@ async function fetchAcled(daysPast = 14): Promise<AcledEvent[]> {
   return (data.data ?? []) as AcledEvent[];
 }
 
-// ── Helpers ──────────────────────────────────────────────────
-async function getSourceId(supabase: ReturnType<typeof getAdminClient>, name: string): Promise<string | null> {
-  const { data } = await supabase
-    .from("sources")
-    .select("id")
-    .eq("name", name)
-    .maybeSingle();
-  
-  if (data?.id) return data.id;
+// ── Enqueue Helper ───────────────────────────────────────────
+// Writes a raw item to ingestion_queue instead of directly inserting
+// into evidence_items. Embedding + dedup happens in drain-queue.
 
-  // Fallback lookup if exact name doesn't match
-  const { data: fallback } = await supabase
-    .from("sources")
-    .select("id")
-    .ilike("name", `%${name}%`)
-    .limit(1)
-    .maybeSingle();
-
-  return fallback?.id ?? null;
-}
-
-async function getTopicIdBySlug(supabase: ReturnType<typeof getAdminClient>, slug: string): Promise<string | null> {
-  const { data } = await supabase
-    .from("topics")
-    .select("id")
-    .eq("slug", slug)
-    .maybeSingle();
-  return data?.id ?? null;
-}
-
-async function upsertEvidence(
+async function enqueueItem(
   supabase: ReturnType<typeof getAdminClient>,
-  item: {
-    sourceId: string;
-    topicId?: string | null;
-    headline: string;
-    rawContent: string;
-    normalizedContent: string;
-    sourceUrl: string;
-    imageUrl?: string | null;
-    publishedAt?: string | null;
-    isDirectRecord: boolean;
-  },
-): Promise<string | null> {
-  const { data: existing } = await supabase
-    .from("evidence_items")
-    .select("id")
-    .eq("source_url", item.sourceUrl)
-    .maybeSingle();
-
-  if (existing) return null;
-
-  const { data, error } = await supabase
-    .from("evidence_items")
-    .insert({
-      source_id: item.sourceId,
-      topic_id: item.topicId ?? null,
-      headline: item.headline,
-      raw_content: item.rawContent,
-      normalized_content: item.normalizedContent,
-      source_url: item.sourceUrl,
-      image_url: item.imageUrl ?? null,
-      published_at: item.publishedAt
-        ? new Date(item.publishedAt).toISOString()
-        : null,
-      is_direct_record: item.isDirectRecord,
-    })
-    .select("id")
-    .single();
-
-  if (error || !data) {
-    console.error("Insert error:", error?.message);
-    return null;
-  }
-
-  try {
-    const textForEmbedding = `${item.headline}. ${item.normalizedContent}`.slice(0, 2048);
-    const embedding = await generateEmbedding(textForEmbedding, "RETRIEVAL_DOCUMENT");
-    await supabase
-      .from("evidence_items")
-      .update({ embedding })
-      .eq("id", data.id);
-  } catch (embErr) {
-    console.error("Embedding generation failed:", embErr);
-  }
-
-  return data.id;
+  sourceName: string,
+  sourceType: "rss" | "telegram" | "acled" | "newsdata",
+  payload: Record<string, unknown>,
+): Promise<boolean> {
+  const { error } = await supabase.from("ingestion_queue").insert({
+    source_name: sourceName,
+    source_type: sourceType,
+    payload,
+  });
+  return !error;
 }
 
 // ── Main Handler ─────────────────────────────────────────────
@@ -271,154 +200,250 @@ Deno.serve(async (req: Request) => {
     const source: string = body.source ?? "all";
 
     const results: Record<string, number> = {};
-    const defaultTopicId = await getTopicIdBySlug(supabase, "government");
 
     // ── PIB RSS ──────────────────────────────────────────────
     if (source === "all" || source === "pib") {
-      const pibId = await getSourceId(supabase, "PIB");
-      if (pibId) {
+      try {
         const items = await fetchRss("https://pib.gov.in/RssMain.aspx");
         let count = 0;
         for (const item of items.slice(0, 20)) {
-          const id = await upsertEvidence(supabase, {
-            sourceId: pibId,
-            topicId: defaultTopicId,
+          if (!item.link) continue;
+          const ok = await enqueueItem(supabase, "PIB", "rss", {
             headline: item.title,
-            rawContent: item.description,
-            normalizedContent: item.description,
-            sourceUrl: item.link,
-            publishedAt: item.pubDate,
-            isDirectRecord: true, // Lane 1
+            raw_content: item.description,
+            normalized_content: item.description,
+            source_url: item.link,
+            published_at: item.pubDate || null,
+            is_direct_record: true,
+            default_topic_slug: "government",
           });
-          if (id) count++;
+          if (ok) count++;
         }
         results["pib"] = count;
-      }
+      } catch (e) { console.error("PIB RSS error:", e); results["pib"] = 0; }
     }
 
     // ── PIB Telegram (@PIB_FactCheck) ────────────────────────
     if (source === "all" || source === "pib_telegram") {
-      const pibId = (await getSourceId(supabase, "PIB Fact Check")) || (await getSourceId(supabase, "PIB"));
-      if (pibId) {
+      try {
         const items = await fetchPibTelegram();
         let count = 0;
         for (const item of items.slice(0, 15)) {
-          const itemTopicId = item.topicSlug ? (await getTopicIdBySlug(supabase, item.topicSlug)) : defaultTopicId;
-          const id = await upsertEvidence(supabase, {
-            sourceId: pibId,
-            topicId: itemTopicId || defaultTopicId,
+          const ok = await enqueueItem(supabase, "PIB Fact Check", "telegram", {
             headline: item.title,
-            rawContent: item.description,
-            normalizedContent: item.description,
-            sourceUrl: item.link,
-            publishedAt: item.pubDate,
-            isDirectRecord: true, // Lane 1: PIB Fact Check is authoritative
+            raw_content: item.description,
+            normalized_content: item.description,
+            source_url: item.link,
+            published_at: item.pubDate,
+            is_direct_record: true,
+            default_topic_slug: item.topicSlug ?? "government",
           });
-          if (id) count++;
+          if (ok) count++;
         }
         results["pib_telegram"] = count;
-      }
+      } catch (e) { console.error("PIB Telegram error:", e); results["pib_telegram"] = 0; }
     }
 
     // ── Alt News RSS ─────────────────────────────────────────
     if (source === "all" || source === "altnews") {
-      const altId = await getSourceId(supabase, "Alt News");
-      const altTopicId = (await getTopicIdBySlug(supabase, "protests")) || defaultTopicId;
-      if (altId) {
+      try {
         const items = await fetchRss("https://www.altnews.in/feed");
         let count = 0;
         for (const item of items.slice(0, 20)) {
-          const id = await upsertEvidence(supabase, {
-            sourceId: altId,
-            topicId: altTopicId,
+          if (!item.link) continue;
+          const ok = await enqueueItem(supabase, "Alt News", "rss", {
             headline: item.title,
-            rawContent: item.description,
-            normalizedContent: item.description,
-            sourceUrl: item.link,
-            publishedAt: item.pubDate,
-            isDirectRecord: false, // Lane 2
+            raw_content: item.description,
+            normalized_content: item.description,
+            source_url: item.link,
+            published_at: item.pubDate || null,
+            is_direct_record: false,
+            default_topic_slug: "protests",
           });
-          if (id) count++;
+          if (ok) count++;
         }
         results["altnews"] = count;
-      }
+      } catch (e) { console.error("Alt News error:", e); results["altnews"] = 0; }
     }
 
     // ── Factly RSS ───────────────────────────────────────────
     if (source === "all" || source === "factly") {
-      const factlyId = await getSourceId(supabase, "Factly");
-      const factlyTopicId = (await getTopicIdBySlug(supabase, "elections")) || defaultTopicId;
-      if (factlyId) {
+      try {
         const items = await fetchRss("https://factly.in/feed");
         let count = 0;
         for (const item of items.slice(0, 20)) {
-          const id = await upsertEvidence(supabase, {
-            sourceId: factlyId,
-            topicId: factlyTopicId,
+          if (!item.link) continue;
+          const ok = await enqueueItem(supabase, "Factly", "rss", {
             headline: item.title,
-            rawContent: item.description,
-            normalizedContent: item.description,
-            sourceUrl: item.link,
-            publishedAt: item.pubDate,
-            isDirectRecord: false, // Lane 2
+            raw_content: item.description,
+            normalized_content: item.description,
+            source_url: item.link,
+            published_at: item.pubDate || null,
+            is_direct_record: false,
+            default_topic_slug: "elections",
           });
-          if (id) count++;
+          if (ok) count++;
         }
         results["factly"] = count;
-      }
+      } catch (e) { console.error("Factly error:", e); results["factly"] = 0; }
     }
 
     // ── NewsData.io ──────────────────────────────────────────
     if (source === "all" || source === "newsdata") {
-      const newsId = await getSourceId(supabase, "NewsData.io");
-      if (newsId) {
+      try {
         const articles = await fetchNewsData();
         let count = 0;
         for (const article of articles.slice(0, 20)) {
           const content = article.description ?? article.title;
-          const id = await upsertEvidence(supabase, {
-            sourceId: newsId,
-            topicId: defaultTopicId,
+          const ok = await enqueueItem(supabase, "NewsData.io", "newsdata", {
             headline: article.title,
-            rawContent: content,
-            normalizedContent: content,
-            sourceUrl: article.link,
-            imageUrl: article.image_url,
-            publishedAt: article.pubDate,
-            isDirectRecord: false,
+            raw_content: content,
+            normalized_content: content,
+            source_url: article.link,
+            image_url: article.image_url ?? null,
+            published_at: article.pubDate ?? null,
+            is_direct_record: false,
+            default_topic_slug: "government",
           });
-          if (id) count++;
+          if (ok) count++;
         }
         results["newsdata"] = count;
-      }
+      } catch (e) { console.error("NewsData error:", e); results["newsdata"] = 0; }
     }
 
     // ── ACLED ────────────────────────────────────────────────
     if (source === "all" || source === "acled") {
-      const acledId = await getSourceId(supabase, "ACLED");
-      const conflictTopicId = (await getTopicIdBySlug(supabase, "conflict")) || defaultTopicId;
-      if (acledId) {
+      try {
         const events = await fetchAcled();
         let count = 0;
         for (const event of events) {
           const content = `${event.event_type} in ${event.location}, India on ${event.event_date}. ${event.notes}. Actors: ${event.actor1}${event.actor2 ? `, ${event.actor2}` : ""}. Fatalities: ${event.fatalities}.`;
-          const id = await upsertEvidence(supabase, {
-            sourceId: acledId,
-            topicId: conflictTopicId,
+          const ok = await enqueueItem(supabase, "ACLED", "acled", {
             headline: `${event.event_type}: ${event.location} (${event.event_date})`,
-            rawContent: content,
-            normalizedContent: content,
-            sourceUrl: `https://acleddata.com/data-export-tool/?data_id=${event.data_id}`,
-            publishedAt: event.event_date,
-            isDirectRecord: true, // Lane 1
+            raw_content: content,
+            normalized_content: content,
+            source_url: `https://acleddata.com/data-export-tool/?data_id=${event.data_id}`,
+            published_at: event.event_date,
+            is_direct_record: true,
+            default_topic_slug: "conflict",
           });
-          if (id) count++;
+          if (ok) count++;
         }
         results["acled"] = count;
-      }
+      } catch (e) { console.error("ACLED error:", e); results["acled"] = 0; }
     }
 
-    return new Response(JSON.stringify({ success: true, ingested: results }), {
+    // ── Indian Express RSS ───────────────────────────────────
+    if (source === "all" || source === "indianexpress") {
+      try {
+        const items = await fetchRss("https://indianexpress.com/feed/");
+        let count = 0;
+        for (const item of items.slice(0, 20)) {
+          if (!item.link) continue;
+          const ok = await enqueueItem(supabase, "Indian Express", "rss", {
+            headline: item.title,
+            raw_content: item.description,
+            normalized_content: item.description,
+            source_url: item.link,
+            published_at: item.pubDate || null,
+            is_direct_record: true,
+            default_topic_slug: "government",
+          });
+          if (ok) count++;
+        }
+        results["indianexpress"] = count;
+      } catch (e) { console.error("Indian Express error:", e); results["indianexpress"] = 0; }
+    }
+
+    // ── The Hindu RSS ────────────────────────────────────────
+    if (source === "all" || source === "thehindu") {
+      try {
+        const items = await fetchRss("https://www.thehindu.com/feeder/default.rss");
+        let count = 0;
+        for (const item of items.slice(0, 20)) {
+          if (!item.link) continue;
+          const ok = await enqueueItem(supabase, "The Hindu", "rss", {
+            headline: item.title,
+            raw_content: item.description,
+            normalized_content: item.description,
+            source_url: item.link,
+            published_at: item.pubDate || null,
+            is_direct_record: true,
+            default_topic_slug: "government",
+          });
+          if (ok) count++;
+        }
+        results["thehindu"] = count;
+      } catch (e) { console.error("The Hindu error:", e); results["thehindu"] = 0; }
+    }
+
+    // ── Zee News RSS ─────────────────────────────────────────
+    if (source === "all" || source === "zeenews") {
+      try {
+        const items = await fetchRss("https://zeenews.india.com/rss/india-news.xml");
+        let count = 0;
+        for (const item of items.slice(0, 20)) {
+          if (!item.link) continue;
+          const ok = await enqueueItem(supabase, "Zee News", "rss", {
+            headline: item.title,
+            raw_content: item.description,
+            normalized_content: item.description,
+            source_url: item.link,
+            published_at: item.pubDate || null,
+            is_direct_record: true,
+            default_topic_slug: "government",
+          });
+          if (ok) count++;
+        }
+        results["zeenews"] = count;
+      } catch (e) { console.error("Zee News error:", e); results["zeenews"] = 0; }
+    }
+
+    // ── TV9 Hindi RSS ────────────────────────────────────────
+    if (source === "all" || source === "tv9hindi") {
+      try {
+        const items = await fetchRss("https://tv9hindi.com/feed");
+        let count = 0;
+        for (const item of items.slice(0, 15)) {
+          if (!item.link) continue;
+          const ok = await enqueueItem(supabase, "TV9 Hindi", "rss", {
+            headline: item.title,
+            raw_content: item.description,
+            normalized_content: item.description,
+            source_url: item.link,
+            published_at: item.pubDate || null,
+            is_direct_record: true,
+            default_topic_slug: "government",
+          });
+          if (ok) count++;
+        }
+        results["tv9hindi"] = count;
+      } catch (e) { console.error("TV9 Hindi error:", e); results["tv9hindi"] = 0; }
+    }
+
+    // ── Vishvas News RSS (Verified Claims lane) ──────────────
+    if (source === "all" || source === "vishvasnews") {
+      try {
+        const items = await fetchRss("https://vishvasnews.com/feed");
+        let count = 0;
+        for (const item of items.slice(0, 15)) {
+          if (!item.link) continue;
+          const ok = await enqueueItem(supabase, "Vishvas News", "rss", {
+            headline: item.title,
+            raw_content: item.description,
+            normalized_content: item.description,
+            source_url: item.link,
+            published_at: item.pubDate || null,
+            is_direct_record: false, // Lane 2: fact-checker
+            default_topic_slug: "government",
+          });
+          if (ok) count++;
+        }
+        results["vishvasnews"] = count;
+      } catch (e) { console.error("Vishvas News error:", e); results["vishvasnews"] = 0; }
+    }
+
+    return new Response(JSON.stringify({ success: true, enqueued: results }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,
     });

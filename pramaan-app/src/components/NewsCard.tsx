@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
-import { ShieldAlert, Info, Database } from 'lucide-react';
+import { ShieldAlert, Info, Database, Layers, ArrowRight } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import type { NewsItem } from '../data/mockData';
 
 // ── Minimalist Confidence Indicator ──────────────────────────────
@@ -8,10 +9,13 @@ const TIER_COLORS = {
   developing: 'var(--developing)',
   unverified: 'var(--unverified)',
   norecord:   'var(--text-tertiary)',
+  refuted:    'var(--synthetic)',
 };
 
 export function NewsCard({ item, index }: { item: NewsItem; index: number }) {
-  const color = TIER_COLORS[item.confidence];
+  const color = TIER_COLORS[item.confidence] || 'var(--developing)';
+  const storyTargetId = item.storyId || item.id;
+  const count = item.clusterCount ?? 1;
 
   return (
     <motion.article
@@ -43,6 +47,26 @@ export function NewsCard({ item, index }: { item: NewsItem; index: number }) {
           </span>
         </div>
 
+        {/* Cluster Indicator */}
+        {count > 1 && (
+          <Link
+            to={`/story/${storyTargetId}`}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              color: 'var(--accent)',
+              textDecoration: 'none',
+              marginTop: 4,
+            }}
+          >
+            <Layers size={12} />
+            <span className="mono" style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase' }}>
+              {count} Sources Clustered
+            </span>
+          </Link>
+        )}
+
         {item.isSynthetic && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--synthetic)', marginTop: 8 }}>
             <Info size={12} />
@@ -55,14 +79,21 @@ export function NewsCard({ item, index }: { item: NewsItem; index: number }) {
 
       {/* Editorial Content Column */}
       <div style={{ flex: 1 }}>
-        <h3 style={{ marginBottom: 16 }}>{item.headline}</h3>
+        <h3 style={{ marginBottom: 16 }}>
+          <Link
+            to={`/story/${storyTargetId}`}
+            style={{ color: 'inherit', textDecoration: 'none' }}
+          >
+            {item.headline}
+          </Link>
+        </h3>
         <p style={{ fontSize: 15, color: 'var(--text-secondary)', lineHeight: 1.7, marginBottom: 24, maxWidth: '65ch' }}>
           {item.summary}
         </p>
 
         {/* Metadata Footer */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             {item.sources.map(src => (
               <span key={src} className="mono" style={{
                 fontSize: 10, padding: '4px 10px', borderRadius: 'var(--r-sm)',
@@ -76,6 +107,22 @@ export function NewsCard({ item, index }: { item: NewsItem; index: number }) {
           
           <div style={{ flex: 1 }} />
           
+          <Link
+            to={`/story/${storyTargetId}`}
+            className="mono"
+            style={{
+              fontSize: 11,
+              color: 'var(--accent)',
+              textDecoration: 'none',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              marginRight: 12,
+            }}
+          >
+            Story Cluster <ArrowRight size={12} />
+          </Link>
+
           <span className="mono" style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
             {new Date(item.timestamp).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
           </span>

@@ -1,14 +1,12 @@
 import { motion, AnimatePresence } from 'framer-motion';
+import { NavLink, Link, useLocation } from 'react-router-dom';
 import { Sun, Moon, Search } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 
-interface NavProps {
-  activeView: 'timeline' | 'checker';
-  onViewChange: (v: 'timeline' | 'checker') => void;
-}
-
-export function Navbar({ activeView, onViewChange }: NavProps) {
+export function Navbar() {
   const { theme, toggle } = useTheme();
+  const location = useLocation();
+  const currentPath = location.pathname;
 
   return (
     <div style={{ position: 'fixed', top: 24, left: 0, right: 0, zIndex: 100, pointerEvents: 'none' }}>
@@ -18,42 +16,60 @@ export function Navbar({ activeView, onViewChange }: NavProps) {
           pointerEvents: 'auto',
         }}>
 
-          {/* Logo */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {/* Logo -> Links to / (Landing) */}
+          <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 12, textDecoration: 'none', color: 'inherit' }}>
             <span style={{ fontFamily: 'var(--font-serif)', fontWeight: 600, fontSize: 20, letterSpacing: '-0.02em', fontStyle: 'italic' }}>
               Pramaan.
             </span>
-          </div>
+          </Link>
 
-          {/* Minimal Nav */}
+          {/* Router Nav Links */}
           <nav style={{ display: 'flex', gap: 4 }}>
-            {(['timeline', 'checker'] as const).map(v => (
-              <button key={v} onClick={() => onViewChange(v)}
-                style={{
-                  position: 'relative', padding: '8px 16px',
-                  fontFamily: 'var(--font-sans)', fontSize: 14, fontWeight: 500,
-                  color: activeView === v ? 'var(--text-primary)' : 'var(--text-secondary)',
-                  transition: 'color var(--dur-base) var(--ease-out)',
-                }}>
-                {v === 'timeline' ? 'Briefing' : 'Verify'}
-                {activeView === v && (
-                  <motion.div layoutId="nav-bg"
-                    style={{
-                      position: 'absolute', inset: 0,
-                      background: 'var(--bg-surface-2)', borderRadius: 'var(--r-full)', zIndex: -1,
-                    }}
-                    transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                  />
-                )}
-              </button>
-            ))}
+            {[
+              { path: '/timeline', label: 'Briefing' },
+              { path: '/checker', label: 'Verify' },
+            ].map(navItem => {
+              const isActive = currentPath === navItem.path || (navItem.path === '/timeline' && currentPath === '/');
+
+              return (
+                <NavLink
+                  key={navItem.path}
+                  to={navItem.path}
+                  style={{
+                    position: 'relative',
+                    padding: '8px 16px',
+                    fontFamily: 'var(--font-sans)',
+                    fontSize: 14,
+                    fontWeight: 500,
+                    color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
+                    textDecoration: 'none',
+                    transition: 'color var(--dur-base) var(--ease-out)',
+                  }}
+                >
+                  {navItem.label}
+                  {isActive && (
+                    <motion.div
+                      layoutId="nav-bg"
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        background: 'var(--bg-surface-2)',
+                        borderRadius: 'var(--r-full)',
+                        zIndex: -1,
+                      }}
+                      transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                    />
+                  )}
+                </NavLink>
+              );
+            })}
           </nav>
 
           {/* Right Tools */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <button className="btn-icon" onClick={() => onViewChange('checker')} aria-label="Search" style={{ border: 'none', width: 36, height: 36 }}>
+            <Link to="/checker" className="btn-icon" aria-label="Search" style={{ border: 'none', width: 36, height: 36, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'inherit', textDecoration: 'none' }}>
               <Search size={16} />
-            </button>
+            </Link>
             <div style={{ width: 1, height: 16, background: 'var(--border)', margin: '0 4px' }} />
             <motion.button onClick={toggle} className="btn-icon" style={{ border: 'none', width: 36, height: 36 }} whileTap={{ scale: 0.9 }}>
               <AnimatePresence mode="wait" initial={false}>
